@@ -55,7 +55,7 @@ test("isolated Lesson package serves mounted assets and hands its data lease to 
     const request = (route, init = {}) =>
       fetch(url + prefix + route, {
         ...init,
-        headers: { "x-rdfz-application-token": token, ...init.headers },
+        headers: init.headers,
       });
     for (let i = 0; ; i++) {
       try {
@@ -78,20 +78,13 @@ test("isolated Lesson package serves mounted assets and hands its data lease to 
   }
   const old = await launch();
   await assert.rejects(access(dataRoot));
-  assert.equal((await fetch(old.url + prefix + "/api/health")).status, 403);
+  assert.equal((await fetch(old.url + "/api/health")).status, 404);
   const html = await (await old.request("")).text();
   assert.match(html, /id="root"/);
   // This test is built with the real, no-trailing-slash Lesson mount.
   const asset = html.match(/src="([^"]+\.js)"/)[1];
   assert.ok(asset.startsWith(prefix + "/"));
-  assert.equal(
-    (
-      await fetch(old.url + asset, {
-        headers: { "x-rdfz-application-token": token },
-      })
-    ).status,
-    200,
-  );
+  assert.equal((await fetch(old.url + asset)).status, 200);
   assert.equal((await old.request("/intro.html")).status, 200);
   const form = new FormData();
   for (const [key, value] of Object.entries({

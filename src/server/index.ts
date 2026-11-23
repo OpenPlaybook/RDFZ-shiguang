@@ -1,6 +1,5 @@
 import { createServer as createHttpServer } from "node:http";
 import path from "node:path";
-import { timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import express from "express";
 import { configFromEnv } from "./config.js";
@@ -16,22 +15,6 @@ const acquireStore = () =>
   }));
 try {
   const app = express();
-  const token = process.env.RDFZ_APPLICATION_TOKEN;
-  if (token)
-    app.use((req, res, next) => {
-      const supplied = Buffer.from(
-        String(req.headers["x-rdfz-application-token"] || ""),
-      );
-      const expected = Buffer.from(token);
-      if (
-        supplied.length !== expected.length ||
-        !timingSafeEqual(supplied, expected)
-      ) {
-        res.sendStatus(403);
-        return;
-      }
-      next();
-    });
   const routes = express.Router();
   // Candidate health checks must not acquire the previous release's data lease.
   routes.get("/api/health", (_req, res) => res.json({ ok: true }));

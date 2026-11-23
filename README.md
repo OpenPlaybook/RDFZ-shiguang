@@ -83,7 +83,7 @@ src/client/ 保存页面、组件、状态和原视觉样式；src/server/ 保�
 
 ## RDFZ Lesson
 
-仓库根目录的 lesson.application.json 声明服务发布方式。平台构建传入 NEXT_PUBLIC_BASE_PATH，前端资源、API、图片及介绍页均挂载在该 Lesson 的路径下。后端只接受平台代理传来的应用凭据。
+仓库根目录的 lesson.application.json 声明服务发布方式。平台构建传入 NEXT_PUBLIC_BASE_PATH，前端资源、API、图片及介绍页均挂载在该 Lesson 的路径下。平台入口核对作品访问权限，应用后端仅监听回环地址；保留拾光自身的业务身份。
 
 业务数据默认保存到平台 RDFZ_OPUS_ROOT/data，独立于发布版本；本机仍使用项目 data/，DATA_DIR 可显式覆盖。健康检查不初始化数据或获取数据锁，首次业务请求才获取独占锁；平台更新时先检查候选，再排空并关闭旧版本，最后由新版本接管数据。不能让其他服务同时写这个数据目录。
 
