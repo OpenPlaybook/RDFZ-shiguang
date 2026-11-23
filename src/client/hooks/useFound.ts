@@ -1,3 +1,8 @@
+import {
+  cameraAvailabilityMessage,
+  cameraErrorMessage,
+  openCamera,
+} from "../camera";
 import { appUrl } from "../paths";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AiStatus, FillFields, Item } from "../../shared/types";
@@ -84,25 +89,36 @@ export function useFound(
   async function startCamera() {
     stopCamera();
     const token = ++cameraGeneration.current;
+    const unavailable = cameraAvailabilityMessage();
+    if (unavailable) {
+      notify(unavailable);
+      return;
+    }
+    const video = videoRef.current;
+    if (!video) {
+      notify("拍摄区域尚未就绪，请重试");
+      return;
+    }
     try {
-      const next = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: "environment" } },
-        audio: false,
-      });
-      if (token !== cameraGeneration.current || !mounted.current) {
-        next.getTracks().forEach((t) => t.stop());
-        return;
-      }
-      stream.current = next;
-      videoRef.current!.srcObject = next;
-      await videoRef.current!.play();
+      const next = await openCamera(
+        video,
+        () => token === cameraGeneration.current && mounted.current,
+        (acquired) => {
+          stream.current = acquired;
+        },
+      );
+      if (!next) return;
       setLive(true);
       notify("摄像头已打开");
-    } catch {
-      if (token === cameraGeneration.current)
-        notify("无法打开摄像头，请改用相册上传");
+    } catch (error) {
+      if (token === cameraGeneration.current) {
+        stream.current = null;
+        setLive(false);
+        notify(cameraErrorMessage(error));
+      }
     }
   }
+
   async function preview(src: string) {
     const token = ++generation.current;
     request.current?.abort();
