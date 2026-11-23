@@ -32,14 +32,14 @@ try {
   const server = createHttpServer(app);
   let closeFrontend = async () => {};
   if (config.production) {
+    business.get(["/", "/intro", "/intro.html"], (_req, res) =>
+      res.sendFile(path.join(config.publicDir!, "index.html")),
+    );
     business.use(
       express.static(config.publicDir!, {
         index: false,
         dotfiles: "deny",
       }),
-    );
-    business.get(["/", "/intro", "/intro.html"], (_req, res) =>
-      res.sendFile(path.join(config.publicDir!, "index.html")),
     );
   } else {
     const { createServer } = await import("vite");

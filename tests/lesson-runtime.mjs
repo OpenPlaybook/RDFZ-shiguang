@@ -79,7 +79,9 @@ test("isolated Lesson package serves mounted assets and hands its data lease to 
   const old = await launch();
   await assert.rejects(access(dataRoot));
   assert.equal((await fetch(old.url + "/api/health")).status, 404);
-  const html = await (await old.request("")).text();
+  const entry = await old.request("", { redirect: "manual" });
+  assert.equal(entry.status, 200);
+  const html = await entry.text();
   assert.match(html, /id="root"/);
   // This test is built with the real, no-trailing-slash Lesson mount.
   const asset = html.match(/src="([^"]+\.js)"/)[1];
