@@ -1,3 +1,4 @@
+import { appUrl } from "../paths";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AiStatus, FillFields, Item } from "../../shared/types";
 import { OFFICES, CONTACT_TYPES } from "../../shared/constants";
@@ -285,7 +286,7 @@ export function useFound(
         : "",
       contactValue: item.contactValue,
     });
-    setImage(item.image);
+    setImage(appUrl(item.image));
     blob.current = null;
     setStatus("正在修改已发布内容。可更换照片或调整信息后保存。");
     notify("已载入，可修改后保存");

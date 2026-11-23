@@ -1,3 +1,4 @@
+import { appUrl } from "../paths";
 import type { Item, ViewLog } from "../../shared/types";
 import { formatTime } from "../utils";
 export function LockIcon() {
@@ -101,7 +102,7 @@ export function ItemCard({
           </div>
         </div>
       )}
-      <img src={item.image} alt={item.description} />
+      <img src={appUrl(item.image)} alt={item.description} />
       <div className="item-body">
         <StatusBadge item={item} />
         {item.verified && (
@@ -151,7 +152,7 @@ export function HistoryPanel({
             className={"history-card" + (item.verified ? " verified-lock" : "")}
             key={item.id}
           >
-            <img src={item.image} alt={item.description} />
+            <img src={appUrl(item.image)} alt={item.description} />
             <div>
               {item.verified && (
                 <div className="lock-inline">
@@ -228,7 +229,7 @@ export function AdminPanel({
             className={"admin-card" + (item.verified ? " verified-lock" : "")}
             key={item.id}
           >
-            <img src={item.image} alt={item.description} />
+            <img src={appUrl(item.image)} alt={item.description} />
             <div>
               <StatusBadge item={item} />{" "}
               {item.verified ? (

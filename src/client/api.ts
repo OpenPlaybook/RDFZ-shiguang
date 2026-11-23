@@ -1,3 +1,4 @@
+import { appUrl } from "./paths";
 import { ADMIN_TOKEN_KEY, PUBLISHER_KEY } from "../shared/constants";
 export function getPublisherId() {
   let id = localStorage.getItem(PUBLISHER_KEY);
@@ -20,7 +21,7 @@ export async function api<T>(
   if (json !== undefined) headers.set("Content-Type", "application/json");
   let response: Response;
   try {
-    response = await fetch(url, {
+    response = await fetch(appUrl(url), {
       ...init,
       headers,
       body: json !== undefined ? JSON.stringify(json) : init.body,

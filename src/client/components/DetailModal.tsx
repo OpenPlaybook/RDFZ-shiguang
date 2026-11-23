@@ -1,3 +1,4 @@
+import { appUrl } from "../paths";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Item, Profile } from "../../shared/types";
 import { formatTime, formatContactWay } from "../utils";
@@ -132,7 +133,7 @@ export function DetailModal({
         aria-modal="true"
         aria-labelledby="detailTitle"
       >
-        <img id="detailImg" alt="物品照片" src={item.image} />
+        <img id="detailImg" alt="物品照片" src={appUrl(item.image)} />
         <div className="modal-body">
           <div id="detailBadge">
             {locked && (

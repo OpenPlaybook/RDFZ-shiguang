@@ -33,7 +33,7 @@ pnpm build
 pnpm start
 ```
 
-生产服务默认监听 3080，HTTPS 由反向代理或托管平台提供。PORT 可改变监听端口。生产依赖安装前先完成构建，运行只需 dist/ 和生产依赖。GitHub 检查工作流随代码提供，未推送前不代表远程 CI 已执行。
+生产服务默认监听 3080，HTTPS 由反向代理或托管平台提供。PORT 可改变监听端口。生产依赖安装前先完成构建，运行只需自包含的 dist/，无需携带 node_modules。GitHub 检查工作流随代码提供，未推送前不代表远程 CI 已执行。
 
 `pnpm test:ui` 用独立 .data-ui/ 数据和测试口令执行浏览器流程，不使用真实 AI；首次需 `pnpm exec playwright install chromium`。若测试环境已有 Chromium，可设置 PLAYWRIGHT_CHROMIUM_EXECUTABLE 指向它。UI 测试会启动自己的本地服务，测试端口为 3188，不要同时运行多份。
 
@@ -80,3 +80,11 @@ src/client/ 保存页面、组件、状态和原视觉样式；src/server/ 保�
 保留原匿名身份、管理员口令和业务规则。当前发布者身份可由客户端自报，AI 没有完整限流/额度体系，这些仍需在公网运营前专项处理。文件存储面向单实例，不提供数据库、多机事务或热备份。
 
 原页面字体来自 Google Fonts，网络不可达时使用 CSS 指定的回退字体。相机权限和系统字体渲染取决于浏览器/设备。未在某个平台实际测试的内容不宣称通过。
+
+## RDFZ Lesson
+
+仓库根目录的 lesson.application.json 声明服务发布方式。平台构建传入 NEXT_PUBLIC_BASE_PATH，前端资源、API、图片及介绍页均挂载在该 Lesson 的路径下。后端只接受平台代理传来的应用凭据。
+
+业务数据默认保存到平台 RDFZ_OPUS_ROOT/data，独立于发布版本；本机仍使用项目 data/，DATA_DIR 可显式覆盖。健康检查不初始化数据或获取数据锁，首次业务请求才获取独占锁；平台更新时先检查候选，再排空并关闭旧版本，最后由新版本接管数据。不能让其他服务同时写这个数据目录。
+
+平台登记使用既有 envFile/envNames 白名单，仅将平台配置的 DEEPSEEK_API_KEY 交给应用后端。无需在本仓库或前端填写密钥，构建环境不接收密钥。管理员功能仍需独立配置 ADMIN_PIN / ADMIN_TOKEN_SECRET，未配置时不启用。

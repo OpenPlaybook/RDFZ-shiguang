@@ -32,6 +32,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.3.0",
+    "esbuild": "0.28.2",
     "eslint": "^10.15.0",
     "eslint-plugin-react-hooks": "^7.0.1",
     "pixelmatch": "^7.1.0",
@@ -46,13 +47,14 @@
   },
   "scripts": {
     "dev": "tsx watch --env-file-if-exists=.env src/server/index.ts",
-    "build": "vite build && tsc -p tsconfig.server.json",
-    "start": "node --env-file-if-exists=.env dist/server/index.js --production",
+    "build": "vite build && node scripts/build-server.mjs",
+    "start": "node --env-file-if-exists=.env dist/server/index.mjs --production",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.server.json --noEmit",
     "lint": "eslint .",
     "format": "prettier --write src tests *.json *.ts README.md",
     "test": "vitest run",
     "test:ui": "playwright test",
-    "import:data": "tsx src/server/import-data.ts"
+    "import:data": "tsx src/server/import-data.ts",
+    "test:lesson": "NEXT_PUBLIC_BASE_PATH=/lesson-app/l_runtime_test pnpm build && node --test tests/lesson-runtime.mjs"
   }
 }

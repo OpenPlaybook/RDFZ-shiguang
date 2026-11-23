@@ -5,7 +5,10 @@ import { randomUUID } from "node:crypto";
 import { HttpError } from "./errors.js";
 export function uploadMiddleware(root: string) {
   return multer({
-    dest: path.join(root, "tmp"),
+    storage: multer.diskStorage({
+      destination: (_req, _file, callback) =>
+        callback(null, path.join(root, "tmp")),
+    }),
     limits: {
       fileSize: 8 * 1024 * 1024,
       files: 1,

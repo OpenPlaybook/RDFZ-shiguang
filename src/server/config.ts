@@ -1,6 +1,8 @@
 import path from "node:path";
 export interface Config {
   root: string;
+  publicDir?: string;
+  basePath?: string;
   dataDir: string;
   port: number;
   adminPin: string;
@@ -23,11 +25,20 @@ export function configFromEnv(): Config {
     );
   return {
     root,
-    dataDir: path.resolve(root, process.env.DATA_DIR || "data"),
+    publicDir: path.resolve(import.meta.dirname, "../public"),
+    basePath: process.env.RDFZ_LESSON_ID
+      ? `/lesson-app/${process.env.RDFZ_LESSON_ID}`
+      : "",
+    dataDir: path.resolve(
+      process.env.RDFZ_OPUS_ROOT || root,
+      process.env.DATA_DIR || "data",
+    ),
     port,
     adminPin,
     tokenSecret,
     aiKey: process.env.DEEPSEEK_API_KEY?.trim() || "",
-    production: process.argv.includes("--production"),
+    production:
+      process.env.NODE_ENV === "production" ||
+      process.argv.includes("--production"),
   };
 }

@@ -1,3 +1,4 @@
+import { appUrl } from "./paths";
 import { useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { api } from "./api";
@@ -160,7 +161,7 @@ export default function Intro() {
             >
               打开仓库
             </a>
-            <a className="btn btn-ghost" href="/">
+            <a className="btn btn-ghost" href={appUrl("/")}>
               进入拾光站点
             </a>
           </div>

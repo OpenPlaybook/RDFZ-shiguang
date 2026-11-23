@@ -1,7 +1,9 @@
+import { basePath } from "./paths";
 import { lazy, Suspense, StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 const Page = lazy(() =>
-  location.pathname === "/intro.html" || location.pathname === "/intro"
+  location.pathname === basePath + "/intro.html" ||
+  location.pathname === basePath + "/intro"
     ? import("./Intro")
     : import("./App"),
 );
