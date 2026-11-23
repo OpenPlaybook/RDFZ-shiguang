@@ -134,3 +134,16 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
+
+# Private runtime state
+data/
+.data-*/
+.env*
+!.env.example
+.DS_Store
+playwright-report/
+test-results/
+artifacts/
+
+/data.lock/
+/.data-*.lock/
