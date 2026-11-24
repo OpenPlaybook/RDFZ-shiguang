@@ -59,7 +59,23 @@ export function Header({ admin, ai, panel, onBack, onRole, onPanel }: Props) {
             onClick={() => onPanel("browse")}
             className={panel === "browse" ? "active" : ""}
           >
-            我丢了东西
+            浏览招领
+          </button>
+          <button
+            type="button"
+            data-panel="lost"
+            onClick={() => onPanel("lost")}
+            className={panel === "lost" ? "active" : ""}
+          >
+            发寻物
+          </button>
+          <button
+            type="button"
+            data-panel="messages"
+            onClick={() => onPanel("messages")}
+            className={panel === "messages" ? "active" : ""}
+          >
+            消息
           </button>
           <button
             type="button"

@@ -1,5 +1,5 @@
-import express from "express";
-import type { ErrorRequestHandler, Request } from "express";
+import express, { Router } from "express";
+import type { ErrorRequestHandler, Request, Express } from "express";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { Config } from "./config.js";
@@ -10,6 +10,11 @@ import { publicItem } from "./items.js";
 import { aiRouter } from "./ai.js";
 import { commitImage, cleanupUpload, uploadMiddleware } from "./uploads.js";
 import type { ItemRecord, ItemRow, Profile } from "../shared/types.js";
+
+export type AppWithExtraApi = Express & {
+  /** A 整合点：在 /api 404 前挂载 B/C 路由。 */
+  mountExtraApi: (mount: (router: Router) => void) => void;
+};
 function requireRecord(record: ItemRecord | null) {
   if (!record) throw new HttpError(404, "帖子不存在");
   return record;
@@ -33,8 +38,10 @@ export function createApp(
   config: Config,
   store: FileStore,
   upstream: typeof fetch = fetch,
-) {
-  const app = express();
+): AppWithExtraApi {
+  const app = express() as AppWithExtraApi;
+  const extraApi = Router();
+  app.mountExtraApi = (mount) => mount(extraApi);
   app.disable("x-powered-by");
   app.use(express.json({ limit: "2mb" }));
   app.use(
@@ -273,6 +280,8 @@ export function createApp(
     await store.removeImage(image);
     res.json({ ok: true });
   });
+  // B/C 经 mountExtraApi 挂载；须位于 /api 404 之前。
+  app.use(extraApi);
   app.use("/api", (_req, res) => res.status(404).json({ error: "接口不存在" }));
   return app;
 }

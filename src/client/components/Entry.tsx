@@ -107,7 +107,7 @@ export function Entry({
             拾光
           </div>
           <p className="gate-sub">
-            校园失物招领站。捡到物品可拍照上传并选择招领处；丢了东西也能按关键词或时间查找线索。
+            校园失物招领站。捡到可上传招领；丢失可浏览线索或发布寻物，每日配对后站内提醒。
           </p>
           <div className="gate-modules">
             <button
@@ -124,15 +124,24 @@ export function Entry({
             <button
               type="button"
               className="gate-card lost"
-              id="enterLost"
+              id="enterBrowse"
               onClick={() => onPanel("browse")}
             >
               <div className="tag">Module 02</div>
-              <h2>我丢了东西</h2>
-              <p>
-                按关键词或时间区间浏览捡到物品；找回后可登记锁定，防止冒名领取。
-              </p>
+              <h2>浏览招领</h2>
+              <p>按关键词或时间查找已有招领线索，保留人工搜索能力。</p>
               <div className="arrow">去看看 →</div>
+            </button>
+            <button
+              type="button"
+              className="gate-card lost"
+              id="enterLostPublish"
+              onClick={() => onPanel("lost")}
+            >
+              <div className="tag">Module 03</div>
+              <h2>发寻物</h2>
+              <p>提交寻找需求，系统每日配对后把候选留在你的消息里。</p>
+              <div className="arrow">去发布 →</div>
             </button>
           </div>
         </div>

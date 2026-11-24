@@ -5,9 +5,15 @@ import express from "express";
 import { configFromEnv } from "./config.js";
 import { FileStore } from "./storage.js";
 import { createApp, errorHandler } from "./app.js";
+import {
+  createLostMatching,
+  type LostMatchingHandles,
+} from "./lost-matching/mount.js";
 const config = configFromEnv();
 const store = new FileStore(config.dataDir);
 let storeReady: Promise<FileStore> | undefined;
+let handoffB: LostMatchingHandles | undefined;
+let handoffBReady: Promise<LostMatchingHandles> | undefined;
 const acquireStore = () =>
   (storeReady ??= store.acquire().catch((error) => {
     storeReady = undefined;
@@ -16,17 +22,31 @@ const acquireStore = () =>
 try {
   const app = express();
   const routes = express.Router();
+  const business = createApp(config, store);
+  const ensureHandoffB = () =>
+    (handoffBReady ??= (async () => {
+      await acquireStore();
+      if (!handoffB) {
+        handoffB = await createLostMatching({ config, store });
+        business.mountExtraApi((router) => handoffB!.mountRoutes(router));
+        handoffB.scheduler.start();
+      }
+      return handoffB;
+    })().catch((error) => {
+      handoffBReady = undefined;
+      throw error;
+    }));
   // Candidate health checks must not acquire the previous release's data lease.
   routes.get("/api/health", (_req, res) => res.json({ ok: true }));
   routes.use(["/api", "/uploads"], async (_req, _res, next) => {
     try {
       await acquireStore();
+      await ensureHandoffB();
       next();
     } catch (error) {
       next(error);
     }
   });
-  const business = createApp(config, store);
   routes.use(business);
   app.use(config.basePath || "/", routes);
   const server = createHttpServer(app);
@@ -108,6 +128,7 @@ try {
     );
     void (async () => {
       try {
+        if (handoffB) await handoffB.scheduler.stop();
         await closeFrontend();
       } finally {
         await drained;
@@ -124,6 +145,7 @@ try {
   };
   server.on("error", async (err) => {
     console.error("启动失败：", err.message);
+    if (handoffB) await handoffB.scheduler.stop().catch(() => {});
     await closeFrontend();
     if (storeReady) {
       await storeReady.catch(() => {});
@@ -134,6 +156,7 @@ try {
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);
 } catch (err) {
+  if (handoffB) await handoffB.scheduler.stop().catch(() => {});
   if (storeReady) {
     await storeReady.catch(() => {});
     await store.close();

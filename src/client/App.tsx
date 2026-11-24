@@ -9,6 +9,8 @@ import { Entry } from "./components/Entry";
 import { Header } from "./components/Header";
 import { FoundPanel } from "./components/FoundPanel";
 import { BrowsePanel } from "./components/BrowsePanel";
+import { LostPanel } from "./components/LostPanel";
+import { MessagesPanel } from "./components/MessagesPanel";
 import { HistoryPanel, AdminPanel } from "./components/ItemCards";
 import { DetailModal } from "./components/DetailModal";
 import type { DetailAction } from "./components/DetailModal";
@@ -261,6 +263,8 @@ export default function App() {
             onTo={setTo}
             onOpen={setDetail}
           />
+          <LostPanel active={panel === "lost"} notify={notify} />
+          <MessagesPanel active={panel === "messages"} notify={notify} />
           <HistoryPanel
             active={panel === "history"}
             items={items.filter((i) => i.ownerId === viewer)}
