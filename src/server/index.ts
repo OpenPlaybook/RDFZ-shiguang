@@ -16,11 +16,22 @@ const acquireStore = () =>
 try {
   const app = express();
   const routes = express.Router();
+  // B 的寻物调度在拿到数据目录锁之后启动。健康检查不进入这里，也不抢锁。
+  // C 的发布路由接在 createApp 的审核注入点；未注入时不公开未审核内容。
+  let integrationsStarted = false;
+  const startOwnedIntegrations = async () => {
+    if (integrationsStarted) return;
+    integrationsStarted = true;
+  };
+  const stopOwnedIntegrations = async () => {
+    integrationsStarted = false;
+  };
   // Candidate health checks must not acquire the previous release's data lease.
   routes.get("/api/health", (_req, res) => res.json({ ok: true }));
   routes.use(["/api", "/uploads"], async (_req, _res, next) => {
     try {
       await acquireStore();
+      await startOwnedIntegrations();
       next();
     } catch (error) {
       next(error);
@@ -96,7 +107,7 @@ try {
     config.production && !process.env.RDFZ_LESSON_ID ? "0.0.0.0" : "127.0.0.1",
     () =>
       console.log(
-        `拾光已启动：http://localhost:${config.port}\n数据目录：${config.dataDir}\nAI：${config.aiKey ? "DeepSeek 已配置" : "未配置，支持手动填写"}\n管理功能：${config.adminPin ? "已配置" : "未配置"}`,
+        `拾光已启动：http://localhost:${config.port}\n数据目录：${config.dataDir}\nAI：${config.aiKey ? "DeepSeek 已配置" : "未配置，支持手动填写"}\n身份：学校平台登录尚未接入${config.testActors ? "（当前进程打开了测试身份）" : "，写操作需要平台身份"}`,
       ),
   );
   let stopping = false;
@@ -111,6 +122,7 @@ try {
         await closeFrontend();
       } finally {
         await drained;
+        await stopOwnedIntegrations();
         if (storeReady) {
           await storeReady.catch(() => {});
           await store.close();

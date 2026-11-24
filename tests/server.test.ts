@@ -15,8 +15,11 @@ import type { Server } from "node:http";
 import { FileStore } from "../src/server/storage.js";
 import { createApp, errorHandler } from "../src/server/app.js";
 import { importData } from "../src/server/import-data.js";
+import type { Request } from "express";
 import type { Config } from "../src/server/config.js";
 import type { ItemRecord } from "../src/shared/types.js";
+import { FIXTURE_ACTORS, FIXTURE_STATIONS, FIXTURE_STUDENTS } from "../src/server/auth.js";
+import { sanitizeActor, type CurrentActor } from "../src/shared/identity.js";
 vi.mock("node:fs/promises", async (original) => {
   const actual = await original<typeof import("node:fs/promises")>();
   return { ...actual, rename: vi.fn(actual.rename) };
@@ -24,28 +27,37 @@ vi.mock("node:fs/promises", async (original) => {
 const sample = (id = "item_test"): ItemRecord => ({
   item: {
     id,
-    owner_id: "pub_fixture",
+    owner_id: "stu_fixture",
     description: "蓝色水杯",
     office: "图书馆总服务台",
     place: "图书馆二楼",
     contact: "测试联系人",
     contact_type: "电话",
     contact_value: "13800000000",
+    contact_scope: "private",
     image: "/uploads/fixture.png",
     created_at: "2026-11-20T08:00:00.000Z",
     status: "open",
+    revision: 1,
+    publication: {
+      approvedRevision: 1,
+      reviewedAt: "2026-11-20T08:00:00.000Z",
+    },
+    high_value: false,
+    custody: {
+      heldBy: "finder",
+      location: "图书馆总服务台",
+      receivedAt: null,
+      receivedByUserId: null,
+      note: "",
+    },
     claim: null,
+    claim_log: [],
+    intents: [],
     verified: null,
   },
   viewLogs: [],
 });
-const person = {
-  identity: "学生",
-  className: "测试班级",
-  name: "测试同学",
-  idNo: "fixture-001",
-  contact: "fixture@example.test",
-};
 const image = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==",
   "base64",
@@ -66,8 +78,19 @@ beforeEach(async () => {
     tokenSecret: "test-signing-secret-32-characters-long",
     aiKey: "",
     production: false,
+    testActors: false,
+    testReviewAllow: false,
+    devActor: "",
   };
-  const app = createApp(config, store);
+  const app = createApp(config, store, fetch, {
+    resolveActor: (req) => testActor(req),
+    reviewSubmission: async () => ({ status: "allowed", issues: [] }),
+    lookupStudent: async (userId) => {
+      const student = FIXTURE_STUDENTS.find((item) => item.userId === userId);
+      return student ? { status: "found", student } : { status: "absent" };
+    },
+    stations: FIXTURE_STATIONS,
+  });
   app.use((_req, res) => res.status(404).json({ error: "不存在" }));
   app.use(errorHandler);
   server = app.listen(0, "127.0.0.1");
@@ -82,26 +105,33 @@ afterEach(async () => {
   await store.close();
   await rm(root, { recursive: true, force: true });
 });
+function testActor(req: Request): CurrentActor {
+  const key = String(req.header("X-Test-Actor") || "");
+  if (key.startsWith("student:")) {
+    const userId = key.slice("student:".length);
+    return sanitizeActor({
+      kind: "student",
+      userId,
+      name: "并发同学",
+      className: "测试班级",
+    });
+  }
+  return sanitizeActor(FIXTURE_ACTORS[key] ?? { kind: "guest" });
+}
 const request = (
   url: string,
   body?: unknown,
-  viewer = "pub_fixture",
+  actor = "student",
   method = body === undefined ? "GET" : "POST",
-  token = "",
 ) =>
   fetch(base + url, {
     method,
     headers: {
       "Content-Type": "application/json",
-      "X-Publisher-Id": viewer,
-      "X-Admin-Token": token,
+      "X-Test-Actor": actor,
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-async function adminToken() {
-  return (await (await request("/api/admin/login", { pin: "test-pin" })).json())
-    .token as string;
-}
 async function seed() {
   await store.mutate("item_test", () => sample());
   await writeFile(path.join(root, "uploads/fixture.png"), image);
@@ -111,23 +141,20 @@ describe("file concurrency and failure recovery", () => {
     await seed();
     await Promise.all(
       Array.from({ length: 30 }, (_, i) =>
-        request("/api/items/item_test/unlock", {
-          ...person,
-          viewerId: `viewer_${i}`,
-        }),
+        request("/api/items/item_test/intent", {}, `student:viewer_${i}`),
       ),
     );
-    expect((await store.read("item_test"))!.viewLogs).toHaveLength(30);
+    expect((await store.read("item_test"))!.item.intents).toHaveLength(30);
   });
   it("allows only one competing claim and preserves claim state", async () => {
     await seed();
-    await request("/api/items/item_test/unlock", person);
     const result = await Promise.all([
-      request("/api/items/item_test/claim", person),
-      request("/api/items/item_test/claim", person),
+      request("/api/items/item_test/claim", {}, "student"),
+      request("/api/items/item_test/claim", {}, "other"),
     ]);
-    expect(result.map((r) => r.status).sort()).toEqual([200, 400]);
+    expect(result.map((r) => r.status).sort()).toEqual([200, 409]);
     expect((await store.read("item_test"))!.item.status).toBe("claimed");
+    expect((await store.read("item_test"))!.item.claim_log).toHaveLength(1);
   });
   it("does not resurrect a deleted item when an edit follows", async () => {
     await seed();
@@ -191,74 +218,38 @@ describe("file concurrency and failure recovery", () => {
   });
 });
 describe("API behavior and file boundaries", () => {
-  it("hides contacts until unlock and limits logs to administrators", async () => {
+  it("hides personal contacts and claimant details from other students", async () => {
     await seed();
-    const before = await (
-      await request("/api/items/item_test", undefined, "outsider")
+    const outsider = await (
+      await request("/api/items/item_test", undefined, "other")
     ).json();
-    expect(before.item.contactValue).toBe("");
-    expect(before.item.viewLogs).toEqual([]);
-    const unlock = await request(
-      "/api/items/item_test/unlock",
-      person,
-      "outsider",
+    expect(outsider.item.office).toBe("图书馆总服务台");
+    expect(outsider.item.contactValue).toBe("");
+    expect(outsider.item.viewLogs).toEqual([]);
+    expect((await request("/api/items/item_test/unlock", {}, "other")).status).toBe(
+      404,
     );
-    expect(unlock.status).toBe(200);
-    expect((await unlock.json()).item.contactValue).toBe("13800000000");
     const admin = await (
-      await request(
-        "/api/items/item_test",
-        undefined,
-        "admin",
-        "GET",
-        await adminToken(),
-      )
+      await request("/api/items/item_test", undefined, "admin", "GET")
     ).json();
-    expect(admin.item.viewLogs).toHaveLength(1);
+    expect(admin.item.contactValue).toBe("13800000000");
+    expect(admin.item.viewLogs).toEqual([]);
   });
-  it("enforces claim and verification transitions and admin checks", async () => {
+  it("rejects guest edits and no longer exposes the admin password login", async () => {
     await seed();
+    expect((await request("/api/items/item_test/claim", {}, "guest")).status).toBe(
+      403,
+    );
+    expect((await request("/api/admin/login", { pin: "test-pin" })).status).toBe(
+      404,
+    );
     expect(
-      (await request("/api/items/item_test/claim", person, "other")).status,
-    ).toBe(403);
-    expect((await request("/api/items/item_test/verify", {})).status).toBe(403);
-    const token = await adminToken();
-    expect(
-      (
-        await request(
-          "/api/items/item_test/verify",
-          { note: "checked" },
-          "admin",
-          "POST",
-          token,
-        )
-      ).status,
-    ).toBe(200);
-    expect(
-      (await request("/api/items/item_test", {}, "pub_fixture", "PATCH"))
+      (await request("/api/items/item_test", { description: "bad" }, "other", "PATCH"))
         .status,
     ).toBe(403);
-    expect(
-      (
-        await request(
-          "/api/items/item_test/claim",
-          person,
-          "admin",
-          "POST",
-          token,
-        )
-      ).status,
-    ).toBe(403);
-    await request("/api/items/item_test/unverify", {}, "admin", "POST", token);
-    await request("/api/items/item_test/claim", {}, "admin", "POST", token);
-    await request(
-      "/api/items/item_test/claim/cancel",
-      {},
-      "admin",
-      "POST",
-      token,
+    expect((await request("/api/items/item_test/verify", {}, "admin")).status).toBe(
+      404,
     );
-    expect((await store.read("item_test"))!.item.status).toBe("open");
   });
   it("serves uploaded images but not private state, source or removed AI routes", async () => {
     await seed();
@@ -286,10 +277,11 @@ describe("API behavior and file boundaries", () => {
     const response = await fetch(base + "/api/items", {
       method: "POST",
       body: fd,
-      headers: { "X-Publisher-Id": "pub_fixture" },
+      headers: { "X-Test-Actor": "student", "X-Publisher-Id": "hacker" },
     });
     expect(response.status).toBe(201);
     const { item } = await response.json();
+    expect(item.ownerId).toBe("stu_fixture");
     expect(
       (
         await request(
@@ -305,12 +297,12 @@ describe("API behavior and file boundaries", () => {
         await request(
           "/api/items/" + item.id,
           { description: "updated" },
-          "pub_fixture",
+          "student",
           "PATCH",
         )
       ).status,
     ).toBe(200);
-    await request("/api/items/" + item.id, undefined, "pub_fixture", "DELETE");
+    await request("/api/items/" + item.id, undefined, "student", "DELETE");
     expect((await fetch(base + item.image)).status).toBe(404);
   });
   it("cleans rejected uploads and keeps an old picture after save failure", async () => {
@@ -331,7 +323,7 @@ describe("API behavior and file boundaries", () => {
     const response = await fetch(base + "/api/items/item_test", {
       method: "PATCH",
       body: fd,
-      headers: { "X-Publisher-Id": "pub_fixture" },
+      headers: { "X-Test-Actor": "student" },
     });
     expect(response.status).toBe(500);
     expect(await readFile(path.join(root, "uploads/fixture.png"))).toEqual(

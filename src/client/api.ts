@@ -1,13 +1,7 @@
 import { appUrl } from "./paths";
-import { ADMIN_TOKEN_KEY, PUBLISHER_KEY } from "../shared/constants";
+/** 发布者身份由服务端会话决定。保留空实现，避免发布模块继续写入匿名 ID。 */
 export function getPublisherId() {
-  let id = localStorage.getItem(PUBLISHER_KEY);
-  if (!id) {
-    id =
-      "pub_" + Date.now().toString(36) + "_" + crypto.randomUUID().slice(0, 8);
-    localStorage.setItem(PUBLISHER_KEY, id);
-  }
-  return id;
+  return "";
 }
 export async function api<T>(
   url: string,
@@ -15,9 +9,6 @@ export async function api<T>(
 ): Promise<T> {
   const { json, ...init } = options;
   const headers = new Headers(init.headers);
-  headers.set("X-Publisher-Id", getPublisherId());
-  const token = sessionStorage.getItem(ADMIN_TOKEN_KEY);
-  if (token) headers.set("X-Admin-Token", token);
   if (json !== undefined) headers.set("Content-Type", "application/json");
   let response: Response;
   try {

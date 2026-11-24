@@ -103,22 +103,29 @@ test("isolated Lesson package serves mounted assets and hands its data lease to 
   form.set("image", new Blob([image], { type: "image/png" }), "test.png");
   const created = await old.request("/api/items", {
     method: "POST",
-    headers: { "X-Publisher-Id": "pub_runtime" },
+    headers: { "X-Publisher-Id": "pub_runtime", "X-Test-Actor": "student" },
     body: form,
   });
-  assert.equal(created.status, 201);
-  const { item } = await created.json();
+  assert.equal(created.status, 403);
+  const feedback = await old.request("/api/feedback", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message: "runtime lease" }),
+  });
+  assert.equal(feedback.status, 200);
   const candidate = await launch();
-  assert.equal((await old.request(item.image)).status, 200);
+  assert.equal((await candidate.request("/api/health")).status, 200);
   await old.stop();
+  const session = await (await candidate.request("/api/session")).json();
+  assert.equal(session.session.kind, "guest");
+  assert.equal(session.session.platformLogin, "pending");
   const list = await (await candidate.request("/api/items")).json();
-  assert.equal(list.items[0].id, item.id);
-  assert.equal((await candidate.request(item.image)).status, 200);
+  assert.deepEqual(list.items, []);
   await candidate.stop();
   const restarted = await launch();
-  assert.equal(
-    (await (await restarted.request("/api/items")).json()).items[0].id,
-    item.id,
+  assert.deepEqual(
+    (await (await restarted.request("/api/items")).json()).items,
+    [],
   );
   await restarted.stop();
 });

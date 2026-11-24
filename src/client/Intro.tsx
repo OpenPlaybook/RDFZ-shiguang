@@ -91,12 +91,11 @@ export default function Intro() {
             为主：捡到物品想尽快找到失主的人，以及丢失物品、需要按地点/时间检索招领信息的人。
           </p>
           <p>
-            另设<strong>管理人员</strong>
-            （如学生会、保卫处或值班同学）：用口令进入后台能力，处理违规帖、核对已找回状态，并查看联系方式解锁记录，保障信息安全。
+            管理员和公共终端由学校平台授权。管理员核对高价值物品后交付，公共终端只负责拍照发布。
           </p>
           <div className="chip-row">
-            <span className="chip">普通使用者 · 免注册</span>
-            <span className="chip">管理人员 · 口令进入</span>
+            <span className="chip">游客可浏览</span>
+            <span className="chip">发布和领取走平台身份</span>
             <span className="chip">同校 / 同局域网可共享</span>
           </div>
         </div>
@@ -109,19 +108,19 @@ export default function Intro() {
           <div className="idea">
             <strong>低门槛发布</strong>
             <span>
-              拍照上传、填写地点与时间、留下联系方式；无需注册账号，用本机匿名身份区分「我的历史」。
+              游客可以浏览公开招领。发布和领取使用学校平台的姓名与班级，不在这里注册，也不用填写手机号。
             </span>
           </div>
           <div className="idea">
             <strong>隐私按需解锁</strong>
             <span>
-              浏览帖子先看公开信息；要看联系方式时需填写身份与班级等信息，并留下查看记录，减少滥看骚扰。
+              保管位置对浏览者可见。个人联系方式和领取人信息只给本人和管理员看。
             </span>
           </div>
           <div className="idea">
             <strong>找回闭环</strong>
             <span>
-              支持登记「已找回」；管理员可核对锁定，让已结束的帖沉底，列表更干净。
+              普通物品由本人在交付后登记。高价值物品要先交到老师处，再由管理员确认交付。
             </span>
           </div>
           <div className="idea">

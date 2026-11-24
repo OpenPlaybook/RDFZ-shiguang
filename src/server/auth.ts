@@ -1,32 +1,85 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
 import type { Request } from "express";
 import type { Config } from "./config.js";
-export function signAdminToken(secret: string) {
-  const payload = `admin:${Date.now()}`;
-  const sig = createHmac("sha256", secret).update(payload).digest("hex");
-  return Buffer.from(`${payload}.${sig}`).toString("base64url");
+import {
+  guestActor,
+  sanitizeActor,
+  type CurrentActor,
+  type LookupResult,
+  type PlatformStudent,
+  type StationProfile,
+} from "../shared/identity.js";
+/**
+ * 测试夹具只在非生产且显式打开 SHIGUANG_TEST_ACTORS 时生效。
+ * 请求头只能选择这里的键，不能传入任意 userId、姓名或角色。
+ * 这些不是真实学生，也不能在生产环境当作平台登录。
+ */
+export const FIXTURE_ACTORS: Record<string, CurrentActor> = {
+  student: {
+    kind: "student",
+    userId: "stu_fixture",
+    name: "测试同学",
+    className: "测试班级",
+  },
+  other: {
+    kind: "student",
+    userId: "stu_other",
+    name: "另一同学",
+    className: "高二3班",
+  },
+  kiosk: {
+    kind: "kiosk",
+    userId: "kiosk_library",
+    name: "图书馆招领终端",
+    className: "",
+    stationId: "station_library",
+  },
+  admin: {
+    kind: "admin",
+    userId: "admin_fixture",
+    name: "测试老师",
+    className: "学生事务中心",
+  },
+};
+export const FIXTURE_STATIONS: StationProfile[] = [
+  {
+    stationId: "station_library",
+    userId: "kiosk_library",
+    name: "图书馆招领终端",
+    contactName: "图书馆总服务台",
+    contactValue: "",
+  },
+];
+export const FIXTURE_STUDENTS: PlatformStudent[] = [
+  { userId: "stu_fixture", name: "测试同学", className: "测试班级" },
+  { userId: "stu_other", name: "另一同学", className: "高二3班" },
+];
+export function fixtureActor(key: string): CurrentActor | null {
+  if (!/^[a-z]{1,16}$/.test(key)) return null;
+  return FIXTURE_ACTORS[key] ? sanitizeActor(FIXTURE_ACTORS[key]) : null;
 }
-export function verifyAdminToken(token: string, secret: string) {
-  if (!token || !secret) return false;
-  try {
-    const [payload, sig] = Buffer.from(token, "base64url")
-      .toString("utf8")
-      .split(".");
-    const expected = createHmac("sha256", secret).update(payload).digest("hex");
-    const ts = Number(payload.split(":")[1]);
-    return (
-      /^admin:\d+$/.test(payload) &&
-      sig?.length === expected.length &&
-      timingSafeEqual(Buffer.from(sig), Buffer.from(expected)) &&
-      ts > 0 &&
-      ts <= Date.now() &&
-      Date.now() - ts <= 7 * 86400000
-    );
-  } catch {
-    return false;
-  }
+export function resolveActor(req: Request, config: Config): CurrentActor {
+  if (config.production || !config.testActors) return guestActor();
+  const key = String(req.header("X-Test-Actor") || "").trim();
+  if (key) return fixtureActor(key) ?? guestActor();
+  return fixtureActor(config.devActor) ?? guestActor();
 }
-export const publisherId = (req: Request) =>
-  String(req.header("X-Publisher-Id") || req.body?.ownerId || "").trim();
-export const adminRequest = (req: Request, config: Config) =>
-  verifyAdminToken(req.header("X-Admin-Token") || "", config.tokenSecret);
+export function actorProvenance(
+  config: Config,
+  actor: CurrentActor,
+): "none" | "test" {
+  if (config.production || !config.testActors || actor.kind === "guest")
+    return "none";
+  return "test";
+}
+export function lookupStudent(userId: string, config: Config): LookupResult {
+  if (config.production || !config.testActors) return { status: "unavailable" };
+  const student = FIXTURE_STUDENTS.find((item) => item.userId === userId);
+  return student ? { status: "found", student } : { status: "absent" };
+}
+export function stationFor(
+  actor: CurrentActor,
+  stations: StationProfile[],
+): StationProfile | null {
+  if (actor.kind !== "kiosk" || !actor.stationId) return null;
+  return stations.find((item) => item.stationId === actor.stationId) ?? null;
+}

@@ -1,62 +1,68 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AiStatus, Item } from "../shared/types";
-import { ADMIN_TOKEN_KEY, ROLE_KEY } from "../shared/constants";
-import { api, getPublisherId, message } from "./api";
-import type { Panel, Role, Screen } from "./state";
+import {
+  KIOSK_IDLE_MS,
+  guestActor,
+  sessionView,
+  type SessionView,
+} from "../shared/identity";
+import { api, message } from "./api";
+import type { Panel } from "./state";
 import { sortItems } from "./utils";
+import { createIdleCountdown } from "./kiosk-idle";
 import { useFound } from "./hooks/useFound";
-import { Entry } from "./components/Entry";
+import { LoginRequired } from "./components/Entry";
 import { Header } from "./components/Header";
+import { FoundIdentityBanner } from "./components/FoundIdentityBanner";
 import { FoundPanel } from "./components/FoundPanel";
 import { BrowsePanel } from "./components/BrowsePanel";
 import { HistoryPanel, AdminPanel } from "./components/ItemCards";
 import { DetailModal } from "./components/DetailModal";
 import type { DetailAction } from "./components/DetailModal";
 import "./styles/app.css";
+const guestSession = sessionView(guestActor(), null, "none");
+function formatIdle(ms: number) {
+  const total = Math.max(0, Math.ceil(ms / 1000));
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
 export default function App() {
-  const viewer = getPublisherId();
-  const [lastCallLabel, setLastCallLabel] = useState("联系拾主");
   const modalScroll = useRef(0);
   const rememberModalScroll = () => {
     modalScroll.current =
       document.querySelector<HTMLElement>("#detailModal .modal-panel")
         ?.scrollTop || 0;
   };
-  const initial: Role =
-    localStorage.getItem(ROLE_KEY) === "admin" &&
-    sessionStorage.getItem(ADMIN_TOKEN_KEY)
-      ? "admin"
-      : "user";
-  const [role, setRole] = useState<Role>(initial),
-    [selected, setSelected] = useState<Role>(initial),
-    [screen, setScreen] = useState<Screen>("login"),
-    [panel, setPanel] = useState<Panel>("found"),
-    [pin, setPin] = useState(""),
-    [loginBusy, setLoginBusy] = useState(false),
-    [items, setItems] = useState<Item[]>([]),
-    [ai, setAi] = useState<AiStatus>({ configured: false, model: "" }),
-    [detail, setDetail] = useState(""),
-    [search, setSearch] = useState(""),
-    [from, setFrom] = useState(""),
-    [to, setTo] = useState(""),
-    [toast, setToast] = useState({ message: "", id: 0 });
-  const refreshGeneration = useRef(0),
-    loggingIn = useRef(false),
-    actions = useRef(new Set<string>());
-  const admin = role === "admin" && !!sessionStorage.getItem(ADMIN_TOKEN_KEY);
+  const [session, setSession] = useState<SessionView>(guestSession);
+  const [panel, setPanel] = useState<Panel>("browse");
+  const [needLogin, setNeedLogin] = useState(false);
+  const [items, setItems] = useState<Item[]>([]);
+  const [ai, setAi] = useState<AiStatus>({ configured: false, model: "" });
+  const [detail, setDetail] = useState("");
+  const [search, setSearch] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [idleLeft, setIdleLeft] = useState(KIOSK_IDLE_MS);
+  const [toast, setToast] = useState({ message: "", id: 0 });
+  const refreshGeneration = useRef(0);
+  const actions = useRef(new Set<string>());
   const notify = useCallback(
-    (message: string) => setToast((t) => ({ message, id: t.id + 1 })),
+    (text: string) => setToast((current) => ({ message: text, id: current.id + 1 })),
     [],
   );
   useEffect(() => {
     if (!toast.message) return;
-    const id = setTimeout(() => setToast((t) => ({ ...t, message: "" })), 2600);
+    const id = setTimeout(() => setToast((current) => ({ ...current, message: "" })), 2600);
     return () => clearTimeout(id);
   }, [toast.id, toast.message]);
   useEffect(() => {
     const ctrl = new AbortController();
     void api<AiStatus>("/api/ai/status", { signal: ctrl.signal })
       .then(setAi)
+      .catch(() => {});
+    void api<{ session: SessionView }>("/api/session", { signal: ctrl.signal })
+      .then((data) => setSession(data.session))
       .catch(() => {});
     return () => ctrl.abort();
   }, []);
@@ -65,85 +71,69 @@ export default function App() {
     const data = await api<{ items: Item[] }>("/api/items");
     if (token === refreshGeneration.current) setItems(sortItems(data.items));
   }, []);
+  useEffect(() => {
+    void refresh().catch((err) => notify("无法连接服务器：" + message(err)));
+  }, [refresh, session.kind, notify]);
+  useEffect(() => {
+    if (session.kind === "kiosk") setPanel("found");
+  }, [session.kind]);
   const published = useCallback(async () => {
     await refresh();
-    setPanel("history");
-  }, [refresh]);
+    if (session.kind !== "kiosk") setPanel("history");
+  }, [refresh, session.kind]);
   const found = useFound(ai, notify, published);
-  async function enter() {
-    if (loggingIn.current) return;
-    if (selected === "admin" && !pin.trim()) {
-      notify("请输入管理员口令");
-      document.getElementById("adminPinInput")?.focus();
+  const resetRef = useRef(found.reset);
+  resetRef.current = found.reset;
+  const notifyRef = useRef(notify);
+  notifyRef.current = notify;
+  useEffect(() => {
+    if (session.kind !== "kiosk" || panel !== "found") return;
+    const idle = createIdleCountdown(KIOSK_IDLE_MS, () => {
+      resetRef.current();
+      notifyRef.current(
+        "公共终端已闲置两分钟，已清空上一位的输入。终端账号仍可继续发布。",
+      );
+      setIdleLeft(KIOSK_IDLE_MS);
+    });
+    idle.start();
+    setIdleLeft(KIOSK_IDLE_MS);
+    const tick = window.setInterval(() => setIdleLeft(idle.remaining()), 1000);
+    const bump = () => {
+      idle.bump();
+      setIdleLeft(KIOSK_IDLE_MS);
+    };
+    window.addEventListener("pointerdown", bump);
+    window.addEventListener("keydown", bump);
+    return () => {
+      idle.stop();
+      window.clearInterval(tick);
+      window.removeEventListener("pointerdown", bump);
+      window.removeEventListener("keydown", bump);
+    };
+  }, [session.kind, panel]);
+  function onPanel(next: Panel) {
+    if (session.kind === "kiosk" && next !== "found") return;
+    if (session.kind === "guest" && next !== "browse") {
+      setNeedLogin(true);
       return;
     }
-    loggingIn.current = true;
-    setLoginBusy(true);
-    try {
-      if (selected === "admin") {
-        const data = await api<{ token: string }>("/api/admin/login", {
-          method: "POST",
-          json: { pin: pin.trim() },
-        });
-        sessionStorage.setItem(ADMIN_TOKEN_KEY, data.token);
-      } else sessionStorage.removeItem(ADMIN_TOKEN_KEY);
-      setRole(selected);
-      localStorage.setItem(ROLE_KEY, selected);
-      setScreen("gate");
-      if (selected !== "admin" && panel === "admin") setPanel("browse");
-      try {
-        await refresh();
-      } catch (err) {
-        notify("无法连接服务器：" + message(err));
-        return;
-      }
-      notify(
-        selected === "admin"
-          ? "已以管理人员身份进入（数据全站共享）"
-          : "已以使用者身份进入（数据全站共享）",
-      );
-    } catch (err) {
-      notify(message(err));
-    } finally {
-      loggingIn.current = false;
-      setLoginBusy(false);
-    }
-  }
-  function onPanel(next: Panel) {
-    if (next === "admin" && !admin) {
-      notify("仅管理人员可进入管理核对");
-      next = "browse";
+    if (next === "admin" && session.kind !== "admin") {
+      notify("需要管理员权限");
+      return;
     }
     if (next !== "found") found.cancel();
     setPanel(next);
-    setScreen("app");
     if (next !== "found")
       void refresh().catch((err) => notify("刷新列表失败：" + message(err)));
   }
-  function onBack() {
-    found.cancel();
-    setScreen("gate");
-  }
-  function onRole() {
-    found.cancel();
-    setSelected(role);
-    setPin("");
-    setScreen("login");
+  function endKiosk() {
+    found.reset();
+    notify("已结束本次使用并清空表单。终端仍可继续发布。");
   }
   async function remove(item: Item) {
-    if (!admin && item.verified) {
-      notify("管理员已核对锁定，发布者无法删除");
-      return;
-    }
     if (
-      !confirm(
-        `确定删除「${item.description}」吗？${admin ? "" : "删除后不可恢复。"}`,
-      ) ||
-      !confirm(
-        admin
-          ? "管理员删除不可恢复，再次确认？"
-          : "再次确认：真的要删除这条失物招领吗？",
-      )
+      !confirm(`确定删除「${item.description}」吗？删除后不可恢复。`) ||
+      !confirm("再次确认：真的要删除这条失物招领吗？")
     )
       return;
     if (actions.current.has(item.id)) return;
@@ -152,107 +142,106 @@ export default function App() {
       await api(`/api/items/${item.id}`, { method: "DELETE" });
       setDetail("");
       await refresh();
-      notify(admin ? "帖子已删除" : "已删除");
+      notify("已删除");
     } catch (err) {
       notify(message(err));
     } finally {
       actions.current.delete(item.id);
     }
   }
-  async function adminClaim(item: Item) {
-    if (item.verified) {
-      notify("已核对锁定，请先取消核对再改「已找回」状态");
-      return;
-    }
+  async function markHighValue(item: Item) {
     if (actions.current.has(item.id)) return;
     actions.current.add(item.id);
     try {
-      await api(
-        `/api/items/${item.id}/claim${item.status === "claimed" ? "/cancel" : ""}`,
-        {
-          method: "POST",
-          json:
-            item.status === "claimed"
-              ? {}
-              : {
-                  identity: "管理员标记",
-                  name: "管理人员",
-                  idNo: "admin",
-                  contact: "—",
-                },
-        },
-      );
+      await api(`/api/items/${item.id}/high-value`, {
+        method: "POST",
+        json: { highValue: true },
+      });
       await refresh();
-      notify(
-        item.status === "claimed"
-          ? "已取消「已找回」，帖子恢复为待认领"
-          : "已标记为「已找回」",
-      );
+      notify("已标为高价值。学生不能自行取消，也不能自行确认领走。");
     } catch (err) {
       notify(message(err));
     } finally {
       actions.current.delete(item.id);
     }
   }
-  async function detailAction(action: DetailAction, body: unknown) {
+  async function detailAction(action: DetailAction, body?: unknown) {
     rememberModalScroll();
-    await api(`/api/items/${detail}/${action}`, { method: "POST", json: body });
+    const path =
+      action === "correct" || action === "reopen"
+        ? "claim/correct"
+        : action === "custody"
+          ? "custody"
+          : action === "deliver"
+            ? "deliver"
+            : action === "intent"
+              ? "intent"
+              : action === "withdraw"
+                ? "withdraw"
+                : "claim";
+    const payload =
+      action === "reopen"
+        ? { reason: (body as { reason?: string } | undefined)?.reason || "" }
+        : body;
+    await api(`/api/items/${detail}/${path}`, { method: "POST", json: payload ?? {} });
     await refresh();
     notify(
       {
-        unlock: "已验证，可查看联系信息",
-        claim: "已登记找回，帖子已锁定",
-        verify: "核对通过：帖子已锁定并沉至列表底部",
-        unverify: "已取消核对，锁定已解除",
+        claim: "已按本人身份登记领取",
+        intent: "已提交领取意向，等待老师核验交付",
+        deliver: "已记录真实领取人和经办管理员",
+        custody: "已登记交到老师处。这还不是领取。",
+        correct: "已更正交付，原记录仍保留",
+        reopen: "已撤销这次交付，原记录仍保留",
+        withdraw: "已撤下，公开列表不再展示",
       }[action],
     );
   }
   const filtered = items.filter((item) => {
     const q = search.trim().toLowerCase();
-    const fields =
-      admin || item.unlocked || item.verified
-        ? [
-            item.description,
-            item.office,
-            item.place,
-            item.contact,
-            item.contactType,
-            item.contactValue,
-          ]
-        : [item.description, item.place];
+    const fields = [
+      item.description,
+      item.place,
+      item.office,
+      item.custody.location,
+      item.custody.label,
+    ];
+    if (item.contactVisible)
+      fields.push(item.contact, item.contactType, item.contactValue);
     return (
       (!q || fields.join(" ").toLowerCase().includes(q)) &&
       (!from || Date.parse(item.createdAt) >= Date.parse(from + "T00:00:00")) &&
       (!to || Date.parse(item.createdAt) <= Date.parse(to + "T23:59:59.999"))
     );
   });
-  const selectedItem = items.find((i) => i.id === detail);
+  const selectedItem = items.find((item) => item.id === detail);
+  const mine = session.userId
+    ? items.filter((item) => item.ownerId === session.userId)
+    : [];
   return (
     <>
-      <Entry
-        screen={screen}
-        selected={selected}
-        pin={pin}
-        busy={loginBusy}
-        onSelect={setSelected}
-        onPin={setPin}
-        onEnter={() => void enter()}
-        onPanel={onPanel}
-      />
-      <div className="app" id="app" hidden={screen !== "app"}>
+      <LoginRequired open={needLogin} onClose={() => setNeedLogin(false)} />
+      <div className="app" id="app">
         <Header
-          admin={admin}
           ai={ai}
+          session={session}
           panel={panel}
-          onBack={onBack}
-          onRole={onRole}
+          idleLabel={formatIdle(idleLeft)}
           onPanel={onPanel}
+          onEndKiosk={endKiosk}
         />
         <main>
-          <FoundPanel active={panel === "found"} m={found} notify={notify} />
+          {panel === "found" && session.capabilities.publishFound && (
+            <FoundIdentityBanner session={session} />
+          )}
+          <FoundPanel
+            active={panel === "found" && session.capabilities.publishFound}
+            m={found}
+            notify={notify}
+          />
           <BrowsePanel
             active={panel === "browse"}
-            items={filtered}
+            items={filtered.filter((item) => item.status !== "withdrawn")}
             search={search}
             from={from}
             to={to}
@@ -263,20 +252,42 @@ export default function App() {
           />
           <HistoryPanel
             active={panel === "history"}
-            items={items.filter((i) => i.ownerId === viewer)}
+            items={mine}
             onEdit={(item) => {
               onPanel("found");
               found.edit(item);
             }}
             onDelete={(item) => void remove(item)}
           />
-          {admin && (
+          <section
+            className={"panel" + (panel === "lost" ? " active" : "")}
+            id="panel-lost"
+          >
+            <div className="panel-head">
+              <h1>发寻物</h1>
+              <p>
+                寻物发布由寻物模块接入。当前还没有接上，不会产生寻物帖，也不会发送私人消息。
+              </p>
+            </div>
+          </section>
+          <section
+            className={"panel" + (panel === "messages" ? " active" : "")}
+            id="panel-messages"
+          >
+            <div className="panel-head">
+              <h1>消息</h1>
+              <p>
+                站内消息只发给寻物帖的本人。消息模块尚未接入，公共终端看不到这里。
+              </p>
+            </div>
+          </section>
+          {session.kind === "admin" && (
             <AdminPanel
               active={panel === "admin"}
               items={items}
               onOpen={setDetail}
               onDelete={(item) => void remove(item)}
-              onClaim={(item) => void adminClaim(item)}
+              onMarkHighValue={(item) => void markHighValue(item)}
             />
           )}
         </main>
@@ -286,22 +297,21 @@ export default function App() {
           key={
             selectedItem.id +
             selectedItem.status +
-            !!selectedItem.verified +
-            selectedItem.unlocked
+            selectedItem.highValue +
+            selectedItem.custody.heldBy +
+            (selectedItem.claim?.claimedAt || "") +
+            selectedItem.myIntent
           }
           item={selectedItem}
+          session={session}
           initialScroll={modalScroll.current}
-          lastCallLabel={lastCallLabel}
-          onCallLabel={setLastCallLabel}
-          admin={admin}
-          viewer={viewer}
           notify={notify}
           onClose={() => {
             rememberModalScroll();
             setDetail("");
           }}
           onDelete={(item) => void remove(item)}
-          onAdminClaim={adminClaim}
+          onNeedLogin={() => setNeedLogin(true)}
           onAction={detailAction}
         />
       )}

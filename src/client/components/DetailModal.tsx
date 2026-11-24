@@ -1,29 +1,27 @@
 import { appUrl } from "../paths";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { Item, Profile } from "../../shared/types";
+import { useLayoutEffect, useRef, useState } from "react";
+import type { Item } from "../../shared/types";
+import type { SessionView } from "../../shared/identity";
 import { formatTime, formatContactWay } from "../utils";
-import { LockIcon, StatusBadge, ViewLogs } from "./ItemCards";
+import { StatusBadge, ViewLogs } from "./ItemCards";
 import { message } from "../api";
-const blank: Profile = {
-  identity: "学生",
-  className: "",
-  name: "",
-  idNo: "",
-  contact: "",
-};
-export type DetailAction = "unlock" | "claim" | "verify" | "unverify";
+export type DetailAction =
+  | "claim"
+  | "intent"
+  | "deliver"
+  | "custody"
+  | "correct"
+  | "reopen"
+  | "withdraw";
 interface Props {
-  lastCallLabel: string;
-  onCallLabel: (label: string) => void;
   initialScroll: number;
   item: Item;
-  admin: boolean;
-  viewer: string;
+  session: SessionView;
   notify: (message: string) => void;
   onClose: () => void;
   onDelete: (item: Item) => void;
-  onAdminClaim: (item: Item) => Promise<void>;
-  onAction: (action: DetailAction, body: unknown) => Promise<void>;
+  onNeedLogin: () => void;
+  onAction: (action: DetailAction, body?: unknown) => Promise<void>;
 }
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
@@ -36,54 +34,32 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 export function DetailModal({
   item,
   initialScroll,
-  lastCallLabel,
-  onCallLabel,
-  admin,
-  viewer,
+  session,
   notify,
   onClose,
   onDelete,
-  onAdminClaim,
+  onNeedLogin,
   onAction,
 }: Props) {
-  const [mode, setMode] = useState<"" | "unlock" | "claim">(""),
-    [unlock, setUnlock] = useState<Profile>(blank),
-    [claim, setClaim] = useState<Profile>(
-      () => item.viewLogs.find((l) => l.viewerId === viewer) || blank,
-    ),
-    [busy, setBusy] = useState(false);
+  const [claimantUserId, setClaimantUserId] = useState("");
+  const [note, setNote] = useState("");
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const scrollAtOpen = useRef(initialScroll);
+  const working = useRef(false);
   useLayoutEffect(() => {
     if (panelRef.current) panelRef.current.scrollTop = scrollAtOpen.current;
   }, []);
-  const working = useRef(false);
-  const locked = !!item.verified,
-    unlocked = admin || item.unlocked || locked,
-    sensitive = unlocked || item.ownerId === viewer;
-  const callHref =
-    sensitive && item.contactValue
-      ? item.contactType === "电话"
-        ? "tel:" + item.contactValue.replace(/\s/g, "")
-        : item.contactType === "邮箱"
-          ? "mailto:" + item.contactValue
-          : ""
-      : "";
-  useEffect(() => {
-    if (callHref)
-      onCallLabel(item.contactType === "电话" ? "拨打电话" : "发送邮件");
-  }, [callHref, item.contactType, onCallLabel]);
-  function openForm(next: "unlock" | "claim") {
-    setMode(next);
-    setTimeout(() => document.getElementById(next + "Name")?.focus(), 0);
-  }
-  async function run(action: DetailAction, body: unknown = {}) {
+  const admin = session.kind === "admin";
+  const student = session.kind === "student";
+  const open = item.status === "open";
+  async function run(action: DetailAction, body?: unknown) {
     if (working.current) return;
     working.current = true;
     setBusy(true);
     try {
       await onAction(action, body);
-      setMode("");
     } catch (err) {
       notify(message(err));
     } finally {
@@ -91,32 +67,22 @@ export function DetailModal({
       setBusy(false);
     }
   }
-  function claimClick() {
-    if (admin) {
-      void onAdminClaim(item);
-      return;
-    }
-    if (!unlocked) {
-      notify("请先填写个人信息查看联系方式，再登记已找回");
-      openForm("unlock");
-    } else openForm("claim");
-  }
-  async function submitProfile(action: "unlock" | "claim") {
-    const p = action === "unlock" ? unlock : claim;
-    if (!p.name.trim() || !p.idNo.trim() || !p.contact.trim()) {
-      notify(
-        action === "claim"
-          ? "请填写姓名、学号/工号和联系方式以证明身份"
-          : "请填写姓名、学号/工号和联系方式",
-      );
-      return;
-    }
+  function selfClaim() {
     if (
-      action === "claim" &&
-      !confirm("确认登记为已找回？将提交你的身份信息并锁定该帖。")
+      !confirm(
+        "确认实物已经交给你，并由本人登记领取？这不会显示为老师已核验。",
+      )
     )
       return;
-    await run(action, { ...p, viewerId: viewer });
+    void run("claim");
+  }
+  function deliver() {
+    if (!claimantUserId.trim()) {
+      notify("请填写领取学生的平台用户 ID");
+      return;
+    }
+    if (!confirm("确认已经核对身份并完成交付？")) return;
+    void run("deliver", { claimantUserId: claimantUserId.trim(), note });
   }
   return (
     <div
@@ -136,368 +102,226 @@ export function DetailModal({
         <img id="detailImg" alt="物品照片" src={appUrl(item.image)} />
         <div className="modal-body">
           <div id="detailBadge">
-            {locked && (
-              <div className="detail-lock-banner">
-                <LockIcon />
-                <span>管理员已核对 · 帖子已锁定</span>
-              </div>
-            )}
             <StatusBadge item={item} />
-            {locked && (
-              <>
-                {" "}
-                <div className="badge badge-locked">硬锁定</div>
-              </>
-            )}
+            {item.highValue && <div className="badge badge-locked">高价值</div>}
           </div>
           <h2 id="detailTitle">{item.description}</h2>
-          <div className="detail-row">
-            <span>捡到场所</span>
-            <div id="detailPlace">{item.place}</div>
-          </div>
-          <div className="detail-row">
-            <span>发布时间</span>
-            <div id="detailTime">{formatTime(item.createdAt)}</div>
-          </div>
-
-          <div id="sensitiveBlock" hidden={!sensitive}>
-            <div className="detail-row">
-              <span>失物招领处</span>
-              <div id="detailOffice">{item.office}</div>
+          <DetailRow label="捡到场所" value={item.place} />
+          <DetailRow label="发布时间" value={formatTime(item.createdAt)} />
+          <DetailRow label="招领处" value={item.office || "未填写"} />
+          <DetailRow label="当前保管" value={item.custody.label} />
+          {item.contactVisible && (
+            <div id="sensitiveBlock">
+              <DetailRow label="联系人" value={item.contact || "未填写"} />
+              <DetailRow label="联系方式" value={formatContactWay(item)} />
             </div>
-            <div className="detail-row">
-              <span>联系人</span>
-              <div id="detailContact">{item.contact || "未填写"}</div>
+          )}
+          {item.highValue && open && (
+            <div className="locked-note" id="highValueNote">
+              高价值物品需要老师核对身份和归属后再交付。学生只能提出领取意向，不能自行确认领走。
+              {item.custody.teacherReceived
+                ? " 实物已交到老师处。"
+                : " 目前尚未交到老师处，还不能完成交付。"}
             </div>
-            <div className="detail-row">
-              <span>联系方式</span>
-              <div id="detailContactWay">{formatContactWay(item)}</div>
-            </div>
-          </div>
-
-          <div className="locked-note" id="privacyNote" hidden={sensitive}>
-            为保护拾主隐私，失物招领处、联系人与联系方式需填写你的个人信息后才能查看。
-          </div>
-
-          <div
-            id="detailClaimInfo"
-            hidden={!sensitive || (!item.claim && !item.verified)}
-          >
-            {item.status === "claimed" && item.claim && (
-              <>
-                <DetailRow
-                  label="找回登记 · 身份"
-                  value={item.claim.identity || "未填写"}
-                />
-                <DetailRow
-                  label="找回登记 · 班级/部门"
-                  value={item.claim.className || "未填写"}
-                />
-                <DetailRow label="找回登记 · 姓名" value={item.claim.name} />
-                <DetailRow
-                  label="找回登记 · 学号/工号"
-                  value={item.claim.idNo || "未填写"}
-                />
-                <DetailRow
-                  label="找回登记 · 联系方式"
-                  value={item.claim.contact}
-                />
-                <DetailRow
-                  label="登记时间"
-                  value={formatTime(item.claim.claimedAt)}
-                />
-              </>
-            )}
-            {item.verified && (
+          )}
+          {item.claimVisible && item.claim && (
+            <div id="detailClaimInfo">
+              <DetailRow label="领取人" value={item.claim.name} />
               <DetailRow
-                label="管理核对"
-                value={`已于 ${formatTime(item.verified.verifiedAt)} 核对通过${item.verified.note ? "：" + item.verified.note : ""}`}
+                label="班级"
+                value={item.claim.className || "未填写"}
               />
+              <DetailRow label="登记方式" value={item.claim.claimLabel} />
+              <DetailRow
+                label="登记时间"
+                value={formatTime(item.claim.claimedAt)}
+              />
+              {item.claim.note && (
+                <DetailRow label="备注" value={item.claim.note} />
+              )}
+            </div>
+          )}
+          {item.status === "claimed" && !item.claimVisible && (
+            <div className="locked-note" id="claimHiddenNote">
+              该物品已领取。领取人信息只对本人和管理员可见。
+            </div>
+          )}
+          {admin && item.legacyVerification && (
+            <DetailRow
+              label="历史核对"
+              value={`记录于 ${formatTime(item.legacyVerification.at)}，不代表本次已交付${item.legacyVerification.note ? "：" + item.legacyVerification.note : ""}`}
+            />
+          )}
+          {admin && (
+            <div id="detailViewLogs" className="claim-box">
+              <strong>历史查看记录（不再新增）</strong>
+              <div style={{ marginTop: "10px" }}>
+                <ViewLogs logs={item.viewLogs ?? []} />
+              </div>
+              {item.claimLog.length > 0 && (
+                <div style={{ marginTop: "12px" }}>
+                  <strong>交付留痕</strong>
+                  {item.claimLog.map((entry, index) => (
+                    <div className="view-log-item" key={entry.at + index}>
+                      {entry.name} · {entry.className} ·{" "}
+                      {entry.active ? "当前有效" : "已更正"}
+                      {entry.closeReason ? `：${entry.closeReason}` : ""}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          <div className="modal-actions" id="detailActions">
+            {session.kind === "guest" && open && (
+              <button
+                type="button"
+                className="btn btn-primary"
+                id="btnNeedLogin"
+                onClick={onNeedLogin}
+              >
+                登录后登记领取
+              </button>
             )}
-          </div>
-          <div id="detailViewLogs" className="claim-box" hidden={!admin}>
-            <strong>查看联系信息历史</strong>
-            <div id="detailViewLogsBody" style={{ marginTop: "10px" }}>
-              <ViewLogs logs={item.viewLogs} />
-            </div>
-          </div>
-          <div
-            className="locked-note"
-            id="lockedNote"
-            hidden={item.status !== "claimed" && !locked}
-          >
-            {locked
-              ? "管理员已核对通过：帖子硬锁定，沉底显示。仅管理员可「取消核对」解锁。"
-              : "该失物已登记找回，信息已锁定，仅可阅读，不可再修改。"}
-          </div>
-
-          <div className="claim-box" id="unlockBox" hidden={mode !== "unlock"}>
-            <strong>填写个人信息以查看联系信息</strong>
-            <p className="hint">
-              提交后即可查看失物招领处、联系人与联系方式。信息仅用于失物核对。
-            </p>
-            <label>
-              身份
-              <select
-                id="unlockIdentity"
-                value={unlock.identity}
-                onChange={(e) => {
-                  const value = e.currentTarget.value;
-                  setUnlock((p) => ({ ...p, identity: value }));
-                }}
-              >
-                <option value="学生">学生</option>
-                <option value="职工">职工</option>
-                <option value="老师">老师</option>
-                <option value="其他">其他</option>
-              </select>
-            </label>
-            <label>
-              班级 / 部门（选填）
-              <input
-                id="unlockClass"
-                placeholder="学生填班级；职工/老师可填部门或不填"
-                value={unlock.className}
-                onChange={(e) => {
-                  const value = e.currentTarget.value;
-                  setUnlock((p) => ({ ...p, className: value }));
-                }}
-              />
-            </label>
-            <label>
-              姓名
-              <input
-                id="unlockName"
-                placeholder="真实姓名"
-                value={unlock.name}
-                onChange={(e) => {
-                  const value = e.currentTarget.value;
-                  setUnlock((p) => ({ ...p, name: value }));
-                }}
-              />
-            </label>
-            <label>
-              学号 / 工号
-              <input
-                id="unlockIdNo"
-                placeholder="学号或工号"
-                value={unlock.idNo}
-                onChange={(e) => {
-                  const value = e.currentTarget.value;
-                  setUnlock((p) => ({ ...p, idNo: value }));
-                }}
-              />
-            </label>
-            <label>
-              联系方式
-              <input
-                id="unlockContact"
-                placeholder="电话 / 微信 / 邮箱等"
-                value={unlock.contact}
-                onChange={(e) => {
-                  const value = e.currentTarget.value;
-                  setUnlock((p) => ({ ...p, contact: value }));
-                }}
-              />
-            </label>
-            <div className="modal-actions">
+            {session.kind === "kiosk" && (
+              <p className="hint" id="kioskNoClaim">
+                公共终端只能发布，不能领取，也不能查看私人消息。
+              </p>
+            )}
+            {student && open && !item.highValue && (
               <button
                 type="button"
-                className="btn btn-accent"
-                id="confirmUnlock"
+                className="btn btn-primary"
+                id="btnSelfClaim"
                 disabled={busy}
-                onClick={() => void submitProfile("unlock")}
+                onClick={selfClaim}
               >
-                提交并查看
+                本人登记已领取
               </button>
+            )}
+            {student && open && item.highValue && (
+              <button
+                type="button"
+                className="btn btn-primary"
+                id="btnIntent"
+                disabled={busy || item.myIntent}
+                onClick={() => void run("intent")}
+              >
+                {item.myIntent ? "已提交领取意向" : "提出领取意向"}
+              </button>
+            )}
+            {admin && open && !item.custody.teacherReceived && (
               <button
                 type="button"
                 className="btn btn-ghost"
-                id="cancelUnlock"
-                onClick={() => setMode("")}
-              >
-                取消
-              </button>
-            </div>
-          </div>
-
-          <div className="claim-box" id="claimBox" hidden={mode !== "claim"}>
-            <strong>登记已找回 · 请确认本人信息</strong>
-            <p className="hint">确认后帖子锁定，防止冒名领取。</p>
-            <label>
-              身份
-              <select
-                id="claimIdentity"
-                value={claim.identity}
-                onChange={(e) => {
-                  const value = e.currentTarget.value;
-                  setClaim((p) => ({ ...p, identity: value }));
-                }}
-              >
-                <option value="学生">学生</option>
-                <option value="职工">职工</option>
-                <option value="老师">老师</option>
-                <option value="其他">其他</option>
-              </select>
-            </label>
-            <label>
-              班级 / 部门（选填）
-              <input
-                id="claimClass"
-                placeholder="学生填班级；职工/老师可填部门或不填"
-                value={claim.className}
-                onChange={(e) => {
-                  const value = e.currentTarget.value;
-                  setClaim((p) => ({ ...p, className: value }));
-                }}
-              />
-            </label>
-            <label>
-              姓名
-              <input
-                id="claimName"
-                required
-                placeholder="真实姓名"
-                value={claim.name}
-                onChange={(e) => {
-                  const value = e.currentTarget.value;
-                  setClaim((p) => ({ ...p, name: value }));
-                }}
-              />
-            </label>
-            <label>
-              学号 / 工号
-              <input
-                id="claimIdNo"
-                required
-                placeholder="学号或工号"
-                value={claim.idNo}
-                onChange={(e) => {
-                  const value = e.currentTarget.value;
-                  setClaim((p) => ({ ...p, idNo: value }));
-                }}
-              />
-            </label>
-            <label>
-              联系方式
-              <input
-                id="claimContact"
-                required
-                placeholder="电话 / 微信 / 邮箱等"
-                value={claim.contact}
-                onChange={(e) => {
-                  const value = e.currentTarget.value;
-                  setClaim((p) => ({ ...p, contact: value }));
-                }}
-              />
-            </label>
-            <div className="modal-actions">
-              <button
-                type="button"
-                className="btn btn-accent"
-                id="confirmClaim"
+                id="btnCustody"
                 disabled={busy}
-                onClick={() => void submitProfile("claim")}
+                onClick={() => void run("custody", { heldBy: "teacher" })}
               >
-                确认已找回
+                登记已交到老师处
               </button>
+            )}
+            {admin && open && (
+              <div className="claim-box" id="deliverBox">
+                <strong>确认交付</strong>
+                <p className="hint">
+                  按平台用户 ID 查找学生。找不到时转平台确认，不能把管理员写成失主。
+                </p>
+                <label>
+                  领取学生的平台用户 ID
+                  <input
+                    id="claimUserId"
+                    value={claimantUserId}
+                    onChange={(e) => setClaimantUserId(e.currentTarget.value)}
+                  />
+                </label>
+                <label>
+                  备注（选填）
+                  <input
+                    id="deliverNote"
+                    value={note}
+                    onChange={(e) => setNote(e.currentTarget.value)}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  id="confirmDeliver"
+                  disabled={busy}
+                  onClick={deliver}
+                >
+                  确认交付
+                </button>
+              </div>
+            )}
+            {admin && item.status === "claimed" && (
+              <div className="claim-box" id="correctBox">
+                <strong>更正交付</strong>
+                <p className="hint">原经办记录会保留，不能直接删掉。</p>
+                <label>
+                  更正后的学生平台用户 ID（撤销则留空）
+                  <input
+                    id="correctUserId"
+                    value={claimantUserId}
+                    onChange={(e) => setClaimantUserId(e.currentTarget.value)}
+                  />
+                </label>
+                <label>
+                  原因
+                  <input
+                    id="correctReason"
+                    value={reason}
+                    onChange={(e) => setReason(e.currentTarget.value)}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  id="confirmCorrect"
+                  disabled={busy}
+                  onClick={() =>
+                    void run("correct", {
+                      claimantUserId: claimantUserId.trim(),
+                      reason: reason.trim(),
+                    })
+                  }
+                >
+                  更正领取人
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  id="confirmReopen"
+                  disabled={busy}
+                  onClick={() => void run("reopen", { reason: reason.trim() })}
+                >
+                  撤销交付
+                </button>
+              </div>
+            )}
+            {(admin || item.isOwner) && item.status !== "withdrawn" && (
               <button
                 type="button"
                 className="btn btn-ghost"
-                id="cancelClaim"
-                onClick={() => setMode("")}
+                id="btnWithdraw"
+                disabled={busy}
+                onClick={() => {
+                  if (confirm("确定撤下这条招领？")) void run("withdraw");
+                }}
               >
-                取消
+                撤下
               </button>
-            </div>
-          </div>
-
-          <div className="modal-actions" id="detailActions" hidden={!!mode}>
-            <button
-              type="button"
-              className="btn btn-primary"
-              id="btnUnlock"
-              hidden={admin || unlocked || locked || item.status === "claimed"}
-              onClick={() => {
-                if (!admin) openForm("unlock");
-              }}
-            >
-              填写信息查看联系方式
-            </button>
-            <button
-              type="button"
-              className={
-                "btn " +
-                (admin && item.status === "claimed"
-                  ? "btn-accent"
-                  : "btn-primary")
-              }
-              id="btnClaim"
-              hidden={locked || (!admin && item.status === "claimed")}
-              style={{ opacity: !admin && !unlocked ? "0.55" : undefined }}
-              title={
-                admin
-                  ? ""
-                  : unlocked
-                    ? "登记已找回"
-                    : "请先填写信息查看联系方式"
-              }
-              onClick={claimClick}
-            >
-              {admin
-                ? item.status === "claimed"
-                  ? "取消已找回"
-                  : "标记已找回"
-                : "已找回"}
-            </button>
-            <button
-              type="button"
-              className="btn btn-primary admin-only"
-              id="btnVerify"
-              hidden={!admin || locked}
-              onClick={() =>
-                void run("verify", {
-                  note: (
-                    prompt("核对备注（选填）", "信息属实，核对通过") || ""
-                  ).trim(),
-                })
-              }
-            >
-              核对通过
-            </button>
-            <button
-              type="button"
-              className="btn btn-ghost admin-only"
-              id="btnUnverify"
-              hidden={!admin || !locked}
-              onClick={() => {
-                if (confirm("取消核对将解除硬锁定，帖子可重新参与排序。确定？"))
-                  void run("unverify");
-              }}
-            >
-              取消核对
-            </button>
-            <button
-              type="button"
-              className="btn btn-danger admin-only"
-              id="btnAdminDelete"
-              hidden={!admin}
-              onClick={() => onDelete(item)}
-            >
-              删除帖子
-            </button>
-            <a
-              className="btn btn-ghost"
-              id="detailCall"
-              href={callHref || "#"}
-              hidden={!callHref}
-            >
-              {!callHref
-                ? lastCallLabel
-                : item.contactType === "电话"
-                  ? "拨打电话"
-                  : "发送邮件"}
-            </a>
+            )}
+            {admin && (
+              <button
+                type="button"
+                className="btn btn-danger"
+                id="btnAdminDelete"
+                onClick={() => onDelete(item)}
+              >
+                删除帖子
+              </button>
+            )}
             <button
               type="button"
               className="btn btn-ghost"

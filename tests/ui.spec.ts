@@ -4,33 +4,38 @@ const png = Buffer.from(
   "base64",
 );
 test.beforeEach(async ({ request }) => {
-  const login = await request.post("/api/admin/login", {
-    data: { pin: "fixture-pin" },
-  });
-  const { token } = await login.json();
   const response = await request.get("/api/items", {
-    headers: { "X-Admin-Token": token },
+    headers: { "X-Test-Actor": "admin" },
   });
   for (const item of (await response.json()).items)
     await request.delete("/api/items/" + item.id, {
-      headers: { "X-Admin-Token": token },
+      headers: { "X-Test-Actor": "admin" },
     });
 });
-async function enter(page: import("@playwright/test").Page, admin = false) {
+async function openAs(page: import("@playwright/test").Page, actor = "") {
+  if (actor) await page.setExtraHTTPHeaders({ "X-Test-Actor": actor });
   await page.goto("/");
-  if (admin) {
-    await page.locator("#roleAdmin").click();
-    await page.locator("#adminPinInput").fill("fixture-pin");
-  }
-  await page.locator("#btnEnterSystem").click();
-  await expect(page.locator("#gate")).toBeVisible();
+  await expect(page.locator("#roleBadge")).toBeVisible();
 }
-test("publishes, edits, filters and deletes using the original interaction flow", async ({
+test("guest can browse and cannot pick an admin role", async ({ page }) => {
+  await openAs(page);
+  await expect(page.locator("#panel-browse")).toBeVisible();
+  await expect(page.locator("#roleBadge")).toHaveText("游客");
+  await expect(page.locator("#roleUser")).toHaveCount(0);
+  await page.locator('[data-panel="found"]').click();
+  await expect(page.locator("#loginModal")).toBeVisible();
+  await expect(page.locator("#loginTitle")).toContainText("学校平台登录");
+  await page.locator("#btnCloseLogin").click();
+  await expect(page.locator("#panel-browse")).toBeVisible();
+});
+test("publishes, edits, filters and deletes using the signed-in student flow", async ({
   page,
 }) => {
   page.on("dialog", (dialog) => dialog.accept());
-  await enter(page);
-  await page.locator("#enterFound").click();
+  await openAs(page, "student");
+  await expect(page.locator("#roleBadge")).toContainText("测试同学");
+  await page.locator('[data-panel="found"]').click();
+  await expect(page.locator("#foundIdentity")).toContainText("测试同学");
   await page.locator("#btnSubmit").click();
   await expect(page.locator("#toast")).toHaveText("请先拍照或从相册选择图片");
   await page
@@ -41,14 +46,9 @@ test("publishes, edits, filters and deletes using the original interaction flow"
   await page.locator("#description").fill("浏览器测试蓝色水杯");
   await page.locator("#office").selectOption("图书馆总服务台");
   await page.locator("#place").fill("图书馆二楼");
-  await page.locator("#contact").fill("测试联系人");
-  await page.locator("#contactType").selectOption("邮箱");
-  await page.locator("#contactValue").fill("fixture@example.test");
   await page.locator("#btnSubmit").click();
   await expect(page.locator("#panel-history")).toBeVisible();
-  const row = page
-    .locator(".history-card")
-    .filter({ hasText: "浏览器测试蓝色水杯" });
+  const row = page.locator(".history-card").filter({ hasText: "浏览器测试蓝色水杯" });
   await expect(row).toBeVisible();
   await row.locator(".btn-edit").click();
   await expect(page.locator("#description")).toHaveValue("浏览器测试蓝色水杯");
@@ -60,7 +60,6 @@ test("publishes, edits, filters and deletes using the original interaction flow"
   await expect(page.locator(".item-card")).toHaveCount(1);
   await page.locator(".item-card").click();
   await expect(page.locator("#detailTitle")).toHaveText("浏览器测试已修改");
-  await expect(page.locator("#sensitiveBlock")).toBeVisible();
   await page.locator("#closeDetail").click();
   await page.locator("#searchInput").fill("没有这个测试物品");
   await expect(page.locator("#emptyState")).toBeVisible();
@@ -78,8 +77,8 @@ test("publishes, edits, filters and deletes using the original interaction flow"
 test("extracts form text locally and handles camera permission failure", async ({
   page,
 }) => {
-  await enter(page);
-  await page.locator("#enterFound").click();
+  await openAs(page, "student");
+  await page.locator('[data-panel="found"]').click();
   await page
     .locator("#fillText")
     .fill("图书馆二楼捡的，交图书馆总服务台，联系人小唐，电话13800138000");
@@ -92,87 +91,76 @@ test("extracts form text locally and handles camera permission failure", async (
       Promise.reject(new Error("permission denied"));
   });
   await page.locator("#btnCamera").click();
-  await expect(page.locator("#toast")).toHaveText(
-    "无法打开摄像头，请改用相册上传",
-  );
+  await expect(page.locator("#toast")).toHaveText("无法打开摄像头，请改用相册上传");
 });
-test("keeps mobile entry and navigation usable", async ({ page }) => {
+test("keeps mobile browsing usable without the old role gate", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await enter(page);
-  await page.locator("#enterLost").click();
+  await openAs(page);
   await expect(page.locator("#panel-browse")).toBeVisible();
-  await page.locator('[data-panel="history"]').click();
-  await expect(page.locator("#panel-history")).toBeVisible();
   await page.locator("#backGate").click();
-  await expect(page.locator("#gate")).toBeVisible();
+  await expect(page.locator("#panel-browse")).toBeVisible();
+  await page.locator('[data-panel="found"]').click();
+  await expect(page.locator("#loginModal")).toBeVisible();
 });
-test("admin can claim, verify, unlock and delete; outsider can unlock and claim", async ({
+test("student registers an ordinary claim and admin records the real claimant", async ({
   page,
   request,
   browser,
 }) => {
-  const form = {
-    ownerId: "pub_browser_fixture",
-    description: "管理测试物品",
-    office: "图书馆总服务台",
-    place: "图书馆二楼",
-    image: { name: "fixture.png", mimeType: "image/png", buffer: png },
-  };
-  const response = await request.post("/api/items", { multipart: form });
+  const response = await request.post("/api/items", {
+    headers: { "X-Test-Actor": "student" },
+    multipart: {
+      description: "管理测试物品",
+      office: "图书馆总服务台",
+      place: "图书馆二楼",
+      image: { name: "fixture.png", mimeType: "image/png", buffer: png },
+    },
+  });
   expect(response.status()).toBe(201);
   const { item } = await response.json();
-  const outsider = await browser.newPage();
-  outsider.on("dialog", (d) => d.accept());
-  await outsider.goto("http://127.0.0.1:3188/");
-  await outsider.locator("#btnEnterSystem").click();
-  await outsider.locator("#enterLost").click();
-  await outsider
-    .locator(".item-card")
-    .filter({ hasText: "管理测试物品" })
-    .click();
-  await expect(outsider.locator("#privacyNote")).toBeVisible();
-  await outsider.locator("#btnClaim").click();
-  await expect(outsider.locator("#unlockBox")).toBeVisible();
-  for (const [id, value] of Object.entries({
-    unlockName: "测试同学",
-    unlockIdNo: "test-001",
-    unlockContact: "fixture@example.test",
-  }))
-    await outsider.locator("#" + id).fill(value);
-  await outsider.locator("#confirmUnlock").click();
-  await expect(outsider.locator("#sensitiveBlock")).toBeVisible();
-  await outsider.locator("#btnClaim").click();
-  for (const [id, value] of Object.entries({
-    claimName: "测试同学",
-    claimIdNo: "test-001",
-    claimContact: "fixture@example.test",
-  }))
-    await outsider.locator("#" + id).fill(value);
-  await outsider.locator("#confirmClaim").click();
-  await expect(outsider.locator("#lockedNote")).toBeVisible();
-  await outsider.close();
-  page.on("dialog", (d) =>
-    d.type() === "prompt" ? d.accept("信息属实，核对通过") : d.accept(),
-  );
-  await enter(page, true);
-  await page.locator("#enterLost").click();
+  const claimant = await browser.newPage();
+  claimant.on("dialog", (dialog) => dialog.accept());
+  await claimant.setExtraHTTPHeaders({ "X-Test-Actor": "other" });
+  await claimant.goto("/");
+  await claimant.locator(".item-card").filter({ hasText: "管理测试物品" }).click();
+  await claimant.locator("#btnSelfClaim").click();
+  await expect(claimant.locator("#detailClaimInfo")).toContainText("本人登记");
+  await claimant.close();
+  const guest = await browser.newPage();
+  await guest.goto("/");
+  await guest.locator(".item-card").filter({ hasText: "管理测试物品" }).click();
+  await expect(guest.locator("#claimHiddenNote")).toBeVisible();
+  await expect(guest.locator("#detailClaimInfo")).toHaveCount(0);
+  await guest.close();
+  page.on("dialog", (dialog) => dialog.accept());
+  await openAs(page, "admin");
   await page.locator("#navAdmin").click();
   const row = page.locator(".admin-card").filter({ hasText: "管理测试物品" });
-  await expect(row.locator(".view-log-item")).toHaveCount(1);
-  await row.locator(".btn-toggle-claim").click();
-  await expect(row.locator(".badge-open").first()).toHaveText("待认领");
+  await expect(row).toContainText("另一同学");
+  await expect(row).not.toContainText("管理人员");
   await row.locator(".btn-view").click();
-  await page.locator("#btnVerify").click();
-  await expect(page.locator("#btnUnverify")).toBeVisible();
-  await page.locator("#btnUnverify").click();
-  await expect(page.locator("#btnVerify")).toBeVisible();
+  await expect(page.locator("#detailClaimInfo")).toContainText("本人登记");
   await page.locator("#btnAdminDelete").click();
   await expect(page.locator("#detailModal")).toHaveCount(0);
   expect((await request.get("/api/items/" + item.id)).status()).toBe(404);
 });
-test("ignores stale AI results after selecting another picture", async ({
+test("kiosk clears the previous student without logging the terminal out", async ({
   page,
 }) => {
+  await page.clock.install();
+  await openAs(page, "kiosk");
+  await expect(page.locator("#roleBadge")).toContainText("图书馆");
+  await expect(page.locator('[data-panel="messages"]')).toHaveCount(0);
+  await page.locator("#description").fill("上一位的水杯");
+  await page.locator("#endKiosk").click();
+  await expect(page.locator("#description")).toHaveValue("");
+  await expect(page.locator("#roleBadge")).toContainText("图书馆");
+  await page.locator("#description").fill("下一位的杯子");
+  await page.clock.fastForward(120_000);
+  await expect(page.locator("#description")).toHaveValue("");
+  await expect(page.locator("#roleBadge")).toContainText("图书馆");
+});
+test("ignores stale AI results after selecting another picture", async ({ page }) => {
   await page.route("**/api/ai/status", (route) =>
     route.fulfill({ json: { configured: true, model: "deepseek-flash" } }),
   );
@@ -184,8 +172,8 @@ test("ignores stale AI results after selecting another picture", async ({
       .fulfill({ json: { text: number === 1 ? "旧图片结果" : "新图片结果" } })
       .catch(() => {});
   });
-  await enter(page);
-  await page.locator("#enterFound").click();
+  await openAs(page, "student");
+  await page.locator('[data-panel="found"]').click();
   await page
     .locator("#fileInput")
     .setInputFiles({ name: "a.png", mimeType: "image/png", buffer: png });
@@ -198,9 +186,7 @@ test("ignores stale AI results after selecting another picture", async ({
   await expect(page.locator("#description")).toHaveValue("新图片结果");
   expect(calls).toBe(2);
 });
-test("intro submits feedback and links to the actual repository", async ({
-  page,
-}) => {
+test("intro submits feedback and links to the actual repository", async ({ page }) => {
   await page.goto("/intro.html");
   await expect(page.locator("#githubLink")).toHaveAttribute(
     "href",
@@ -208,11 +194,8 @@ test("intro submits feedback and links to the actual repository", async ({
   );
   await page.locator('[name="message"]').fill("浏览器测试反馈");
   await page.locator("#feedbackForm button").click();
-  await expect(page.locator("#formStatus")).toHaveText(
-    "已收到，谢谢你的反馈！",
-  );
+  await expect(page.locator("#formStatus")).toHaveText("已收到，谢谢你的反馈！");
 });
-
 test("development server never serves private state or server source", async ({
   request,
 }) => {
