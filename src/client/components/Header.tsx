@@ -4,11 +4,20 @@ interface Props {
   ai: AiStatus;
   admin: boolean;
   panel: Panel;
+  messageUnread?: number;
   onBack: () => void;
   onRole: () => void;
   onPanel: (panel: Panel) => void;
 }
-export function Header({ admin, ai, panel, onBack, onRole, onPanel }: Props) {
+export function Header({
+  admin,
+  ai,
+  panel,
+  messageUnread = 0,
+  onBack,
+  onRole,
+  onPanel,
+}: Props) {
   return (
     <header>
       <button
@@ -59,7 +68,7 @@ export function Header({ admin, ai, panel, onBack, onRole, onPanel }: Props) {
             onClick={() => onPanel("browse")}
             className={panel === "browse" ? "active" : ""}
           >
-            浏览招领
+            我丢了东西
           </button>
           <button
             type="button"
@@ -67,15 +76,23 @@ export function Header({ admin, ai, panel, onBack, onRole, onPanel }: Props) {
             onClick={() => onPanel("lost")}
             className={panel === "lost" ? "active" : ""}
           >
-            发寻物
+            我要寻物
           </button>
           <button
             type="button"
             data-panel="messages"
             onClick={() => onPanel("messages")}
-            className={panel === "messages" ? "active" : ""}
+            className={
+              (panel === "messages" ? "active" : "") +
+              (messageUnread > 0 ? " has-unread" : "")
+            }
           >
             消息
+            {messageUnread > 0 ? (
+              <span className="nav-unread" aria-label={`${messageUnread} 条未读`}>
+                {messageUnread > 99 ? "99+" : messageUnread}
+              </span>
+            ) : null}
           </button>
           <button
             type="button"

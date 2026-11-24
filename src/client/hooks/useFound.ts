@@ -8,7 +8,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { AiStatus, FillFields, Item } from "../../shared/types";
 import { OFFICES, CONTACT_TYPES } from "../../shared/constants";
 import { api, getPublisherId, message } from "../api";
-import { compressImage, dataUrlToBlob, runLocalFallback } from "../images";
+import {
+  compressImage,
+  dataUrlToBlob,
+  dataUrlToJpegFile,
+  sniffImageKind,
+  toJpegDataUrl,
+  runLocalFallback,
+} from "../images";
 import {
   localExtractFillFields,
   matchOffice,
@@ -67,7 +74,6 @@ export function useFound(
   }, [stopCamera]);
   const dispose = useCallback(() => {
     mounted.current = false;
-    generation.current++;
     cameraGeneration.current++;
     request.current?.abort();
     fillRequest.current?.abort();
@@ -119,6 +125,38 @@ export function useFound(
     }
   }
 
+  async function recognize(ready: string, token: number, ctrl: AbortController) {
+    setThinking(true);
+    try {
+      if (!ai.configured) {
+        setStatus("服务器未配置 AI，改用本地简易识别");
+        const result = await runLocalFallback(ready);
+        if (token !== generation.current) return;
+        setField("description", result);
+        setStatus(`本地简易识别：${result}。建议配置大模型。`);
+      } else {
+        setStatus(`正在调用 ${ai.model} 识别物品…`);
+        const visionImage = await compressImage(ready);
+        const result = await api<{ text: string }>("/api/ai/vision", {
+          method: "POST",
+          json: { image: visionImage },
+          signal: AbortSignal.any([ctrl.signal, AbortSignal.timeout(45000)]),
+        });
+        if (token !== generation.current) return;
+        setField("description", result.text);
+        setStatus(`服务器 AI 已提取：${result.text}`);
+        document.getElementById("description")?.focus();
+      }
+    } catch (err) {
+      if (token !== generation.current || ctrl.signal.aborted) return;
+      setStatus(`识别失败（照片仍可提交）：${message(err)}`);
+      notify("自动识别失败，请手动填写物品描述后提交");
+    } finally {
+      if (token === generation.current) setThinking(false);
+    }
+  }
+
+  /** 摄像头拍照：得到 data URL 后再压成真正的 JPEG。 */
   async function preview(src: string) {
     const token = ++generation.current;
     request.current?.abort();
@@ -132,45 +170,63 @@ export function useFound(
       const ready = await compressImage(src, 960, 0.72);
       if (token !== generation.current) return;
       setImage(ready);
-      blob.current = dataUrlToBlob(ready);
-      setThinking(true);
-      if (!ai.configured) {
-        setStatus("服务器未配置 AI，改用本地简易识别");
-        const result = await runLocalFallback(ready);
-        if (token !== generation.current) return;
-        setField("description", result);
-        setStatus(`本地简易识别：${result}。建议配置大模型。`);
-      } else {
-        setStatus(`正在调用 ${ai.model} 识别物品…`);
-        const image = await compressImage(ready);
-        const result = await api<{ text: string }>("/api/ai/vision", {
-          method: "POST",
-          json: { image },
-          signal: AbortSignal.any([ctrl.signal, AbortSignal.timeout(45000)]),
-        });
-        if (token !== generation.current) return;
-        setField("description", result.text);
-        setStatus(`服务器 AI 已提取：${result.text}`);
-        document.getElementById("description")?.focus();
-      }
+      blob.current = await dataUrlToJpegFile(ready);
+      notify("照片已就绪，可继续填写并提交");
+      await recognize(ready, token, ctrl);
     } catch (err) {
-      if (token !== generation.current || ctrl.signal.aborted) return;
-      setStatus(`识别失败：${message(err)}`);
-      notify("大模型识别失败");
-    } finally {
-      if (token === generation.current) setThinking(false);
+      if (token !== generation.current) return;
+      setStatus(`图片无法处理：${message(err)}`);
+      notify("照片处理失败，请重拍或换一张");
+      setImage("");
+      blob.current = null;
     }
   }
-  function pick(file?: File) {
+
+  /**
+   * 相册选择：先按文件头识别真实格式。
+   * iPhone HEIC 常被标成 .JPG/.PNG，直接当 PNG data URL 会裂图且服务器拒收。
+   * 一律尽量转成真正的 JPEG 再预览/上传。
+   */
+  async function pick(file?: File) {
     if (!file) return;
-    const reader = new FileReader();
+
     const token = ++generation.current;
-    reader.onload = () => {
-      if (token === generation.current && mounted.current)
-        void preview(String(reader.result));
-    };
-    reader.onerror = () => notify("读取图片失败，请换一张再试");
-    reader.readAsDataURL(file);
+    request.current?.abort();
+    fillRequest.current?.abort();
+    setFillBusy(false);
+    filling.current = false;
+    const ctrl = new AbortController();
+    request.current = ctrl;
+    stopCamera();
+    setImage("");
+    blob.current = null;
+
+    notify("正在处理照片…");
+    setStatus("正在处理照片…");
+
+    const kind = await sniffImageKind(file);
+    if (token !== generation.current) return;
+
+    const ready = await toJpegDataUrl(file, 960, 0.72);
+    if (token !== generation.current) return;
+
+    if (!ready) {
+      const tip =
+        "无法解码该图片。请换一张，或截图后再上传（几乎所有格式截图后都能用）";
+      setStatus(tip);
+      notify(tip);
+      return;
+    }
+
+    setImage(ready);
+    blob.current = await dataUrlToJpegFile(ready);
+    notify("照片已就绪，可继续填写并提交");
+    setStatus(
+      kind === "heic"
+        ? "已自动转换为通用 JPEG，可继续填写并提交"
+        : "照片已载入。正在尝试识别…",
+    );
+    await recognize(ready, token, ctrl);
   }
   function capture() {
     const video = videoRef.current;
@@ -248,9 +304,13 @@ export function useFound(
   }
   async function submit() {
     if (submitting.current) return;
-    if (!image && !editId) {
-      notify("请先拍照或从相册选择图片");
-      return;
+    if (!editId) {
+      if (!blob.current && /^data:image\/jpeg/i.test(image))
+        blob.current = dataUrlToBlob(image);
+      if (!blob.current) {
+        notify("请先拍照或从相册选择图片");
+        return;
+      }
     }
     for (const [field, tip] of [
       ["description", "请填写物品描述"],
@@ -270,7 +330,18 @@ export function useFound(
       data.append("ownerId", getPublisherId());
       for (const [key, value] of Object.entries(form))
         data.append(key, value.trim());
-      if (blob.current) data.append("image", blob.current, "item.jpg");
+      if (blob.current) {
+        const file =
+          blob.current instanceof File && blob.current.type === "image/jpeg"
+            ? blob.current
+            : new File([blob.current], "item.jpg", { type: "image/jpeg" });
+        data.append("image", file, "item.jpg");
+      } else if (!editId) {
+        notify("请先拍照或从相册选择图片");
+        submitting.current = false;
+        setBusy(false);
+        return;
+      }
       await api(
         editId ? `/api/items/${encodeURIComponent(editId)}` : "/api/items",
         { method: editId ? "PATCH" : "POST", body: data },
@@ -292,9 +363,7 @@ export function useFound(
     setEditId(item.id);
     setForm({
       description: item.description,
-      office: OFFICES.includes(item.office)
-        ? item.office
-        : item.office || "其他 / 临时保管点",
+      office: OFFICES.includes(item.office) ? item.office : OFFICES[0] || "",
       place: item.place,
       contact: item.contact,
       contactType: CONTACT_TYPES.includes(item.contactType)
@@ -328,7 +397,7 @@ export function useFound(
     startCamera,
     stopCamera,
     cancel,
-    pick,
+    pick: (file?: File) => void pick(file),
     capture,
     extract,
     submit,

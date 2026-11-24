@@ -6,9 +6,10 @@ import { appUrl } from "../paths";
 interface Props {
   active: boolean;
   notify: (msg: string) => void;
+  onUnreadChange?: () => void;
 }
 
-export function MessagesPanel({ active, notify }: Props) {
+export function MessagesPanel({ active, notify, onUnreadChange }: Props) {
   const [messages, setMessages] = useState<MatchMessageView[]>([]);
   const [unread, setUnread] = useState(0);
   const [selected, setSelected] = useState<MatchMessageView | null>(null);
@@ -19,7 +20,8 @@ export function MessagesPanel({ active, notify }: Props) {
     );
     setMessages(data.messages);
     setUnread(data.unread);
-  }, []);
+    onUnreadChange?.();
+  }, [onUnreadChange]);
 
   useEffect(() => {
     if (!active) return;

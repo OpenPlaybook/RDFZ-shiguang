@@ -46,11 +46,16 @@ export function FoundPanel({
           <div className="cam-actions">
             <button
               type="button"
-              className="btn btn-primary"
+              className={m.live ? "btn btn-ghost" : "btn btn-primary"}
               id="btnCamera"
-              onClick={() => void m.startCamera()}
+              onClick={() => {
+                if (m.live) {
+                  m.stopCamera();
+                  notify("摄像头已关闭");
+                } else void m.startCamera();
+              }}
             >
-              打开摄像头
+              {m.live ? "关闭摄像头" : "打开摄像头"}
             </button>
             <button
               type="button"
@@ -72,13 +77,13 @@ export function FoundPanel({
             <input
               type="file"
               id="fileInput"
+              className="file-input-hidden"
               accept="image/*"
-              capture="environment"
-              hidden
               ref={m.fileRef}
               onChange={(e) => {
-                m.pick(e.currentTarget.files?.[0]);
+                const file = e.currentTarget.files?.[0];
                 e.currentTarget.value = "";
+                if (file) void m.pick(file);
               }}
             />
           </div>

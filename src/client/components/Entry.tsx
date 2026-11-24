@@ -128,7 +128,7 @@ export function Entry({
               onClick={() => onPanel("browse")}
             >
               <div className="tag">Module 02</div>
-              <h2>浏览招领</h2>
+              <h2>我丢了东西</h2>
               <p>按关键词或时间查找已有招领线索，保留人工搜索能力。</p>
               <div className="arrow">去看看 →</div>
             </button>
@@ -139,7 +139,7 @@ export function Entry({
               onClick={() => onPanel("lost")}
             >
               <div className="tag">Module 03</div>
-              <h2>发寻物</h2>
+              <h2>我要寻物</h2>
               <p>提交寻找需求，系统每日配对后把候选留在你的消息里。</p>
               <div className="arrow">去发布 →</div>
             </button>

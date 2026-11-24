@@ -39,8 +39,8 @@ test("publishes, edits, filters and deletes using the original interaction flow"
   await expect(page.locator("#previewImg")).toHaveClass("show");
   await expect(page.locator("#aiStatus")).not.toHaveClass(/thinking/);
   await page.locator("#description").fill("浏览器测试蓝色水杯");
-  await page.locator("#office").selectOption("图书馆总服务台");
-  await page.locator("#place").fill("图书馆二楼");
+  await page.locator("#office").selectOption("食堂一层失物招领处");
+  await page.locator("#place").fill("食堂门口");
   await page.locator("#contact").fill("测试联系人");
   await page.locator("#contactType").selectOption("邮箱");
   await page.locator("#contactValue").fill("fixture@example.test");
@@ -82,10 +82,10 @@ test("extracts form text locally and handles camera permission failure", async (
   await page.locator("#enterFound").click();
   await page
     .locator("#fillText")
-    .fill("图书馆二楼捡的，交图书馆总服务台，联系人小唐，电话13800138000");
+    .fill("食堂门口捡的，交食堂一层失物招领处，联系人小唐，电话13800138000");
   await page.locator("#btnTextExtract").click();
-  await expect(page.locator("#office")).toHaveValue("图书馆总服务台");
-  await expect(page.locator("#place")).toHaveValue("图书馆2楼");
+  await expect(page.locator("#office")).toHaveValue("食堂一层失物招领处");
+  await expect(page.locator("#place")).toHaveValue("食堂门口");
   await expect(page.locator("#contactValue")).toHaveValue("13800138000");
   await page.evaluate(() => {
     navigator.mediaDevices.getUserMedia = () =>

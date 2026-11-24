@@ -5,4 +5,7 @@ export default defineConfig({
   base: (process.env.NEXT_PUBLIC_BASE_PATH || "") + "/",
   plugins: [react(), tailwindcss()],
   build: { outDir: "dist/public", emptyOutDir: true },
+  optimizeDeps: {
+    include: ["heic2any"],
+  },
 });

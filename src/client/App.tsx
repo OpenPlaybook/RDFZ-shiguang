@@ -5,6 +5,7 @@ import { api, getPublisherId, message } from "./api";
 import type { Panel, Role, Screen } from "./state";
 import { sortItems } from "./utils";
 import { useFound } from "./hooks/useFound";
+import { useUnreadMessages } from "./hooks/useUnreadMessages";
 import { Entry } from "./components/Entry";
 import { Header } from "./components/Header";
 import { FoundPanel } from "./components/FoundPanel";
@@ -41,7 +42,11 @@ export default function App() {
     [search, setSearch] = useState(""),
     [from, setFrom] = useState(""),
     [to, setTo] = useState(""),
-    [toast, setToast] = useState({ message: "", id: 0 });
+    [toast, setToast] = useState({ message: "", id: 0 }),
+    [matchAlert, setMatchAlert] = useState<{
+      show: boolean;
+      unread: number;
+    }>({ show: false, unread: 0 });
   const refreshGeneration = useRef(0),
     loggingIn = useRef(false),
     actions = useRef(new Set<string>());
@@ -49,6 +54,21 @@ export default function App() {
   const notify = useCallback(
     (message: string) => setToast((t) => ({ message, id: t.id + 1 })),
     [],
+  );
+  const onNewMessages = useCallback(
+    (unread: number) => {
+      notify(
+        unread === 1
+          ? "有新的配对线索，请查看消息"
+          : `有 ${unread} 条未读配对线索，请查看消息`,
+      );
+      setMatchAlert({ show: true, unread });
+    },
+    [notify],
+  );
+  const { unread: messageUnread, refreshUnread } = useUnreadMessages(
+    screen === "app" && !admin,
+    onNewMessages,
   );
   useEffect(() => {
     if (!toast.message) return;
@@ -119,6 +139,10 @@ export default function App() {
     if (next !== "found") found.cancel();
     setPanel(next);
     setScreen("app");
+    if (next === "messages") {
+      setMatchAlert((a) => ({ ...a, show: false }));
+      void refreshUnread();
+    }
     if (next !== "found")
       void refresh().catch((err) => notify("刷新列表失败：" + message(err)));
   }
@@ -246,6 +270,7 @@ export default function App() {
           admin={admin}
           ai={ai}
           panel={panel}
+          messageUnread={messageUnread}
           onBack={onBack}
           onRole={onRole}
           onPanel={onPanel}
@@ -264,7 +289,11 @@ export default function App() {
             onOpen={setDetail}
           />
           <LostPanel active={panel === "lost"} notify={notify} />
-          <MessagesPanel active={panel === "messages"} notify={notify} />
+          <MessagesPanel
+            active={panel === "messages"}
+            notify={notify}
+            onUnreadChange={refreshUnread}
+          />
           <HistoryPanel
             active={panel === "history"}
             items={items.filter((i) => i.ownerId === viewer)}
@@ -308,6 +337,39 @@ export default function App() {
           onAdminClaim={adminClaim}
           onAction={detailAction}
         />
+      )}
+      {matchAlert.show && screen === "app" && (
+        <div
+          className="match-alert"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="matchAlertTitle"
+        >
+          <div className="match-alert-card">
+            <h2 id="matchAlertTitle">可能找到了你要找的物品</h2>
+            <p>
+              {matchAlert.unread === 1
+                ? "有一条新的配对线索，可在消息里查看详情。这不是归属证明，也不会自动领取。"
+                : `有 ${matchAlert.unread} 条未读配对线索，可在消息里查看。这不是归属证明，也不会自动领取。`}
+            </p>
+            <div className="match-alert-actions">
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setMatchAlert((a) => ({ ...a, show: false }))}
+              >
+                稍后
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => onPanel("messages")}
+              >
+                去查看
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       <div
         className={"toast" + (toast.message ? " show" : "")}

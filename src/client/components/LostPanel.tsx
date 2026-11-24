@@ -80,7 +80,7 @@ export function LostPanel({ active, notify }: Props) {
       id="panelLostPublish"
     >
       <div className="panel-head">
-        <h1>发寻物</h1>
+        <h1>我要寻物</h1>
         <p className="muted">
           用平台身份发布寻找需求，无需手机号与参考照片。每日配对后会在「消息」提醒可能线索。
         </p>
