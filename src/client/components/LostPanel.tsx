@@ -8,6 +8,18 @@ interface Props {
   notify: (msg: string) => void;
 }
 
+function statusLabel(post: LostPost) {
+  if (post.status === "open") return "寻找中";
+  if (post.status === "found") return "已找回";
+  return "已关闭";
+}
+
+function batchLabel(post: LostPost) {
+  if (post.batchHint === "pending_batch") return " · 已发布，将在每日配对后提醒";
+  if (post.batchHint === "no_candidates") return " · 本次暂未找到候选";
+  return "";
+}
+
 export function LostPanel({ active, notify }: Props) {
   const [posts, setPosts] = useState<LostPost[]>([]);
   const [description, setDescription] = useState("");
@@ -15,6 +27,7 @@ export function LostPanel({ active, notify }: Props) {
   const [lostFrom, setLostFrom] = useState("");
   const [lostTo, setLostTo] = useState("");
   const [busy, setBusy] = useState(false);
+  const [listTab, setListTab] = useState<"active" | "history">("active");
 
   const refresh = useCallback(async () => {
     const data = await api<{ posts: LostPost[] }>("/api/lost-posts?mine=1");
@@ -25,6 +38,10 @@ export function LostPanel({ active, notify }: Props) {
     if (!active) return;
     void refresh().catch((err) => notify("加载寻物失败：" + message(err)));
   }, [active, refresh, notify]);
+
+  const activePosts = posts.filter((post) => post.status === "open");
+  const historyPosts = posts.filter((post) => post.status !== "open");
+  const shown = listTab === "active" ? activePosts : historyPosts;
 
   async function submit() {
     if (busy) return;
@@ -46,6 +63,7 @@ export function LostPanel({ active, notify }: Props) {
       setPlace("");
       setLostFrom("");
       setLostTo("");
+      setListTab("active");
       await refresh();
       notify(data.notice || "已发布寻物");
     } catch (err) {
@@ -61,14 +79,28 @@ export function LostPanel({ active, notify }: Props) {
         method: "PATCH",
         json: { status },
       });
+      if (status === "found" || status === "closed") setListTab("history");
       await refresh();
       notify(
         status === "found"
-          ? "已确认找回"
+          ? "已确认找回，可在历史发布中删除"
           : status === "closed"
             ? "已关闭寻物"
             : "已更新",
       );
+    } catch (err) {
+      notify(message(err));
+    }
+  }
+
+  async function remove(post: LostPost) {
+    if (!window.confirm("确定删除这条寻物记录吗？删除后不可恢复。")) return;
+    try {
+      await api(`/api/lost-posts/${encodeURIComponent(post.id)}`, {
+        method: "DELETE",
+      });
+      await refresh();
+      notify("已删除寻物记录");
     } catch (err) {
       notify(message(err));
     }
@@ -137,35 +169,51 @@ export function LostPanel({ active, notify }: Props) {
           发布寻物
         </button>
       </div>
-      <div className="panel-head">
-        <h3>我的寻物</h3>
+      <div className="lost-list-tabs" role="tablist" aria-label="寻物列表">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={listTab === "active"}
+          className={
+            "lost-list-tab" + (listTab === "active" ? " active" : "")
+          }
+          onClick={() => setListTab("active")}
+        >
+          我的寻物{activePosts.length ? `（${activePosts.length}）` : ""}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={listTab === "history"}
+          className={
+            "lost-list-tab" + (listTab === "history" ? " active" : "")
+          }
+          onClick={() => setListTab("history")}
+        >
+          历史发布{historyPosts.length ? `（${historyPosts.length}）` : ""}
+        </button>
       </div>
       <div className="card-list">
-        {posts.length === 0 && (
-          <p className="muted">还没有寻物帖。发布后将在每日配对后提醒。</p>
+        {shown.length === 0 && (
+          <p className="muted">
+            {listTab === "active"
+              ? "还没有进行中的寻物。发布后将在每日配对后提醒。"
+              : "还没有历史寻物。确认找回或关闭后会出现在这里。"}
+          </p>
         )}
-        {posts.map((post) => (
+        {shown.map((post) => (
           <article key={post.id} className="item-card">
             <div className="item-main">
               <h3>{post.description}</h3>
               <p className="muted">
-                {post.place || "地点未填"} ·{" "}
-                {post.status === "open"
-                  ? "寻找中"
-                  : post.status === "found"
-                    ? "已找回"
-                    : "已关闭"}
-                {post.batchHint === "pending_batch"
-                  ? " · 已发布，将在每日配对后提醒"
-                  : post.batchHint === "no_candidates"
-                    ? " · 本次暂未找到候选"
-                    : ""}
+                {post.place || "地点未填"} · {statusLabel(post)}
+                {batchLabel(post)}
               </p>
               {post.image ? (
                 <img src={appUrl(post.image)} alt="" className="thumb" />
               ) : null}
             </div>
-            {post.status === "open" && (
+            {post.status === "open" ? (
               <div className="item-actions">
                 <button
                   type="button"
@@ -180,6 +228,16 @@ export function LostPanel({ active, notify }: Props) {
                   onClick={() => void setStatus(post, "closed")}
                 >
                   关闭
+                </button>
+              </div>
+            ) : (
+              <div className="item-actions">
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => void remove(post)}
+                >
+                  删除
                 </button>
               </div>
             )}

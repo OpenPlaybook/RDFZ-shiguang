@@ -223,6 +223,23 @@ export function lostRouter(deps: {
     res.json({ post: publicLost(updated!) });
   });
 
+  router.delete("/lost-posts/:id", async (req, res) => {
+    const actor = requireStudent(await actorOf(req));
+    const id = text(req.params.id);
+    await deps.lost.mutate(id, (cur) => {
+      if (!cur) throw new HttpError(404, "寻物不存在");
+      if (cur.ownerId !== actor.userId)
+        throw new HttpError(403, "不能删除他人寻物");
+      if (cur.status === "open")
+        throw new HttpError(
+          403,
+          "寻找中的寻物请先确认找回或关闭，再删除",
+        );
+      return null;
+    });
+    res.json({ ok: true });
+  });
+
   return router;
 }
 

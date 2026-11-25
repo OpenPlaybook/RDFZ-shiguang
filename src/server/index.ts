@@ -95,6 +95,8 @@ try {
       next(error);
     }
   });
+  // 寻物/消息路由在 createApp 之前挂载，须自行解析 JSON，否则 body 为空。
+  routes.use(express.json({ limit: "2mb" }));
   routes.use(handoffRouter);
   const business = createApp(config, store, fetch, {
     reviewSubmission: createIdentityReviewer(config),
