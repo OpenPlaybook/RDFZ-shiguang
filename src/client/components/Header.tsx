@@ -7,20 +7,16 @@ interface Props {
   session: SessionView;
   panel: Panel;
   idleLabel: string;
-  testActors: boolean;
   onPanel: (panel: Panel) => void;
   onEndKiosk: () => void;
-  onOpenSettings: () => void;
 }
 export function Header({
   ai,
   session,
   panel,
   idleLabel,
-  testActors,
   onPanel,
   onEndKiosk,
-  onOpenSettings,
 }: Props) {
   const admin = session.kind === "admin";
   const kiosk = session.kind === "kiosk";
@@ -30,8 +26,10 @@ export function Header({
     : admin
       ? `管理员 · ${session.name}`
       : student
-        ? `${session.name} · ${session.className}`
-        : "未登录";
+        ? session.className
+          ? `${session.name} · ${session.className}`
+          : session.name || "同学"
+        : "浏览中";
   return (
     <header>
       <button
@@ -47,24 +45,10 @@ export function Header({
         <span
           className={"role-badge" + (admin ? " admin" : "")}
           id="roleBadge"
-          title={
-            session.provenance === "test"
-              ? "本地试用登录，不是学校平台登录"
-              : "学校平台登录尚未接入"
-          }
+          title="可直接使用；学校平台登录接入后将替换为正式身份"
         >
           {badge}
         </span>
-        {testActors && student && (
-          <button
-            type="button"
-            className="ai-config-btn"
-            id="btnUserSettings"
-            onClick={onOpenSettings}
-          >
-            用户设置
-          </button>
-        )}
         {kiosk && (
           <>
             <span className="ai-config-btn" id="kioskIdle" role="status">

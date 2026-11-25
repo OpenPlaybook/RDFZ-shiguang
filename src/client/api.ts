@@ -1,14 +1,21 @@
 import { appUrl } from "./paths";
+import { PUBLISHER_KEY } from "../shared/constants";
 import type { ReviewIssue, ReviewStatus } from "../shared/publication";
 
 const TEST_ACTOR_KEY = "shiguang_test_actor_v1";
 
-/** 发布者身份由服务端会话决定。保留空实现，避免发布模块继续写入匿名 ID。 */
+/** 浏览器侧发布者标识；学校平台登录接入前用于区分同学。 */
 export function getPublisherId() {
-  return "";
+  let id = localStorage.getItem(PUBLISHER_KEY);
+  if (!id) {
+    id =
+      "pub_" + Date.now().toString(36) + "_" + crypto.randomUUID().slice(0, 8);
+    localStorage.setItem(PUBLISHER_KEY, id);
+  }
+  return id;
 }
 
-/** 本地试用：空字符串表示游客；键对应服务端 FIXTURE_ACTORS。 */
+/** 本地试用夹具键；空表示不使用测试夹具。 */
 export function getTestActor() {
   return sessionStorage.getItem(TEST_ACTOR_KEY) || "";
 }
@@ -43,6 +50,7 @@ export async function api<T>(
   const { json, ...init } = options;
   const headers = new Headers(init.headers);
   if (json !== undefined) headers.set("Content-Type", "application/json");
+  headers.set("X-Publisher-Id", getPublisherId());
   const testActor = getTestActor();
   if (testActor) headers.set("X-Test-Actor", testActor);
   let response: Response;

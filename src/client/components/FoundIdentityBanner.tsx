@@ -20,8 +20,9 @@ export function FoundIdentityBanner({ session }: { session: SessionView }) {
       id="foundIdentity"
       data-found-mode={form.mode}
     >
-      发布身份：{form.displayName || "未命名"} · {form.className || "未分班"}
-      。这是学校平台上的本人信息，不能改成其他人，也不需要填写手机号。
+      发布身份：{form.displayName || "同学"}
+      {form.className ? ` · ${form.className}` : ""}
+      。可直接发布；学校平台登录接入后将替换为正式姓名和班级。
     </p>
   );
 }

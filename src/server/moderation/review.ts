@@ -141,14 +141,13 @@ export function createAiReviewer(
   };
 }
 
-/** 生产用 AI；非生产且无 Key 时用启发式，避免误称学生违规。 */
+/** 有 AI Key 走模型；否则用启发式，避免无平台登录/无 Key 时发布被卡死。 */
 export function createDefaultReviewer(
   config: Config,
   request: typeof fetch = fetch,
 ): ReviewSubmission {
   if (config.aiKey) return createAiReviewer(config, request);
-  if (!config.production) return createHeuristicReviewer();
-  return createUnavailableReviewer();
+  return createHeuristicReviewer();
 }
 
 export function reviewHttpStatus(result: ReviewResult): number {
