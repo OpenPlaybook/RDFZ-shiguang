@@ -990,6 +990,14 @@ textarea {
 .login-modal[hidden] {
   display: none;
 }
+.login-modal-gate {
+  z-index: 200;
+  background: linear-gradient(
+    135deg,
+    rgba(245, 240, 232, 0.98),
+    rgba(220, 235, 232, 0.98)
+  );
+}
 .login-card {
   width: min(520px, 100%);
   background: rgba(255, 255, 255, 0.92);
@@ -1064,6 +1072,9 @@ textarea {
   color: var(--muted);
   line-height: 1.45;
 }
+.role-badge-wrap {
+  position: relative;
+}
 .role-badge {
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.75);
@@ -1073,9 +1084,76 @@ textarea {
   font-weight: 600;
   color: var(--ink);
   white-space: nowrap;
+  font-family: inherit;
 }
 .role-badge.admin {
   color: var(--accent-deep);
+}
+button.role-badge-button {
+  cursor: pointer;
+}
+button.role-badge-button:disabled {
+  cursor: default;
+}
+.role-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 40;
+  min-width: 220px;
+  padding: 6px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 12px 28px rgba(40, 30, 20, 0.12);
+  display: grid;
+  gap: 4px;
+}
+.role-menu-item {
+  display: grid;
+  gap: 2px;
+  text-align: left;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  padding: 10px 12px;
+  cursor: pointer;
+  font-family: inherit;
+  color: var(--ink);
+}
+.role-menu-item:hover,
+.role-menu-item.active {
+  background: rgba(31, 111, 106, 0.08);
+}
+.role-menu-item strong {
+  font-size: 0.88rem;
+}
+.role-menu-item span {
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+.login-form {
+  display: grid;
+  gap: 10px;
+}
+.login-form label {
+  display: grid;
+  gap: 6px;
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+.login-form input {
+  font-weight: 400;
+}
+.login-error {
+  margin: 0;
+  color: #8a2f22;
+  font-size: 0.86rem;
+}
+.login-form .hint {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 400;
 }
 .badge-verified {
   background: rgba(31, 111, 106, 0.14);

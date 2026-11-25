@@ -26,15 +26,24 @@ const acquireStore = () =>
     throw error;
   }));
 
-/** 把 C 的审核接到 A 的 ReviewCandidate（texts/images）。 */
+/**
+ * 统一审核入口：兼容 A（texts/images）与 B（textFields/imageRef）。
+ */
 function createIdentityReviewer(cfg: typeof config) {
   const review = createDefaultReviewer(cfg);
-  return async (candidate: IdentityReviewCandidate) =>
+  return async (
+    candidate: IdentityReviewCandidate & {
+      textFields?: Record<string, string>;
+      imageRef?: string;
+    },
+  ) =>
     review({
       kind: candidate.kind,
       revision: candidate.revision,
-      textFields: candidate.texts,
-      imageRef: candidate.images.find((name) => name.startsWith("staging_")),
+      textFields: candidate.textFields || candidate.texts || {},
+      imageRef:
+        candidate.imageRef ||
+        candidate.images?.find((name) => name.startsWith("staging_")),
     });
 }
 

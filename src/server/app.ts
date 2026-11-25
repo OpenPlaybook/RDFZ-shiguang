@@ -7,6 +7,7 @@ import type { Config } from "./config.js";
 import { FileStore } from "./storage.js";
 import { HttpError, text } from "./errors.js";
 import {
+  FIXTURE_ACTORS,
   FIXTURE_STATIONS,
   actorProvenance,
   lookupStudent,
@@ -28,6 +29,12 @@ import {
   type StationProfile,
 } from "../shared/identity.js";
 import type { ItemRecord } from "../shared/types.js";
+import {
+  findTrialByProfile,
+  loadTestPasswords,
+  saveTestPasswords,
+  trialAccounts,
+} from "./test-passwords.js";
 export interface AppDeps {
   resolveActor?: (req: Request) => CurrentActor | Promise<CurrentActor>;
   reviewSubmission?: (
@@ -89,7 +96,52 @@ export function createApp(
         stationFor(actor, stations),
         deps.resolveActor ? "test" : actorProvenance(config, actor),
       ),
+      /** 仅非生产且打开测试身份时，前端可展示本地试用登录。 */
+      testActors: !config.production && config.testActors,
     });
+  });
+  app.post("/api/test-login", async (req, res) => {
+    if (config.production || !config.testActors)
+      throw new HttpError(403, "当前环境不开放试用登录");
+    const name = text(req.body?.name);
+    const className = text(req.body?.className);
+    const password = text(req.body?.password);
+    if (!name || !className || !password)
+      throw new HttpError(400, "请填写姓名、班级和密码");
+    const account = findTrialByProfile(name, className);
+    if (!account) throw new HttpError(401, "姓名或班级不正确");
+    const passwords = await loadTestPasswords(config.dataDir);
+    if (passwords[account.key] !== password)
+      throw new HttpError(401, "密码不正确");
+    res.json({
+      ok: true,
+      actorKey: account.key,
+      account: { name: account.name, className: account.className },
+    });
+  });
+  app.post("/api/test-password", async (req, res) => {
+    if (config.production || !config.testActors)
+      throw new HttpError(403, "当前环境不开放修改试用密码");
+    const actor = await actorOf(req);
+    if (actor.kind !== "student" || !actor.userId)
+      throw new HttpError(401, "请先登录试用账号");
+    const account = trialAccounts().find((row) => {
+      const fixture = FIXTURE_ACTORS[row.key];
+      return fixture?.userId === actor.userId;
+    });
+    if (!account) throw new HttpError(403, "当前账号不能修改试用密码");
+    const currentPassword = text(req.body?.currentPassword);
+    const newPassword = text(req.body?.newPassword);
+    if (!currentPassword || !newPassword)
+      throw new HttpError(400, "请填写当前密码和新密码");
+    if (newPassword.length < 3 || newPassword.length > 32)
+      throw new HttpError(400, "新密码长度需在 3–32 个字符");
+    const passwords = await loadTestPasswords(config.dataDir);
+    if (passwords[account.key] !== currentPassword)
+      throw new HttpError(401, "当前密码不正确");
+    passwords[account.key] = newPassword;
+    await saveTestPasswords(config.dataDir, passwords);
+    res.json({ ok: true });
   });
   app.use("/api/ai", aiRouter(config, upstream));
   app.post("/api/feedback", async (req, res) => {

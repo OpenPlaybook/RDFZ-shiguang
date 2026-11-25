@@ -77,12 +77,13 @@ export function LostPanel({ active, notify }: Props) {
   return (
     <section
       className={"panel" + (active ? " active" : "")}
-      id="panelLostPublish"
+      id="panel-lost"
     >
       <div className="panel-head">
-        <h1>我要寻物</h1>
-        <p className="muted">
-          用平台身份发布寻找需求，无需手机号与参考照片。每日配对后会在「消息」提醒可能线索。
+        <h1>发寻物</h1>
+        <p>
+          丢失物品的同学可在此发布寻物启事（不必上传照片）。暂无 AI
+          时也可发布；每日配对后会在「消息」里提醒可能线索。
         </p>
       </div>
       <div className="form-grid" style={{ marginBottom: 24 }}>

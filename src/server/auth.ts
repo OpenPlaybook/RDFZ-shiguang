@@ -26,6 +26,20 @@ export const FIXTURE_ACTORS: Record<string, CurrentActor> = {
     name: "另一同学",
     className: "高二3班",
   },
+  /** 本地试用：小李 · 高一一班（默认密码 456） */
+  xiaoli: {
+    kind: "student",
+    userId: "stu_xiaoli",
+    name: "小李",
+    className: "高一一班",
+  },
+  /** 本地试用：小唐 · 高三五班（默认密码 123） */
+  xiaotang: {
+    kind: "student",
+    userId: "stu_xiaotang",
+    name: "小唐",
+    className: "高三五班",
+  },
   kiosk: {
     kind: "kiosk",
     userId: "kiosk_library",
@@ -52,6 +66,8 @@ export const FIXTURE_STATIONS: StationProfile[] = [
 export const FIXTURE_STUDENTS: PlatformStudent[] = [
   { userId: "stu_fixture", name: "测试同学", className: "测试班级" },
   { userId: "stu_other", name: "另一同学", className: "高二3班" },
+  { userId: "stu_xiaoli", name: "小李", className: "高一一班" },
+  { userId: "stu_xiaotang", name: "小唐", className: "高三五班" },
 ];
 export function fixtureActor(key: string): CurrentActor | null {
   if (!/^[a-z]{1,16}$/.test(key)) return null;

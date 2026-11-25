@@ -61,11 +61,11 @@ export function MessagesPanel({ active, notify, onUnreadChange }: Props) {
   return (
     <section
       className={"panel" + (active ? " active" : "")}
-      id="panelMessages"
+      id="panel-messages"
     >
       <div className="panel-head">
-        <h1>配对消息{unread ? `（${unread} 未读）` : ""}</h1>
-        <p className="muted">
+        <h1>消息{unread ? `（${unread} 未读）` : ""}</h1>
+        <p>
           以下为可能是你要找的物品线索，不是归属证明，也不会自动领取。
         </p>
       </div>
