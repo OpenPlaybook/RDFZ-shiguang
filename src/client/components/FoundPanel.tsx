@@ -1,5 +1,5 @@
 import type { FoundModel } from "../hooks/useFound";
-import { OFFICES, CONTACT_TYPES } from "../../shared/constants";
+import { CONTACT_TYPES } from "../../shared/constants";
 export function FoundPanel({
   active,
   m,
@@ -154,18 +154,12 @@ export function FoundPanel({
           </label>
           <label>
             所在失物招领处
-            <select
+            <input
               id="office"
+              placeholder="例如：逸夫楼316"
               value={m.form.office}
               onChange={(e) => m.setField("office", e.currentTarget.value)}
-            >
-              <option value="">请选择失物招领处</option>
-              {OFFICES.map((value) => (
-                <option key={value} value={value}>
-                  {value}
-                </option>
-              ))}
-            </select>
+            />
           </label>
           <label>
             捡到场所
@@ -213,6 +207,15 @@ export function FoundPanel({
                 }
               />
             </div>
+          </label>
+          <label>
+            备注（选填）
+            <input
+              id="note"
+              placeholder="例如：放在柜台抽屉里 / 杯盖单独保管"
+              value={m.form.note}
+              onChange={(e) => m.setField("note", e.currentTarget.value)}
+            />
           </label>
           <button
             type="submit"

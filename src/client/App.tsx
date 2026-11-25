@@ -6,11 +6,13 @@ import {
   sessionView,
   type SessionView,
 } from "../shared/identity";
-import { api, message } from "./api";
+import { api, message, setTestActor } from "./api";
 import type { Panel } from "./state";
 import { sortItems } from "./utils";
 import { createIdleCountdown } from "./kiosk-idle";
 import { useFound } from "./hooks/useFound";
+import { LoginRequired } from "./components/Entry";
+import { UserSettings } from "./components/UserSettings";
 import { Header } from "./components/Header";
 import { FoundIdentityBanner } from "./components/FoundIdentityBanner";
 import { FoundPanel } from "./components/FoundPanel";
@@ -37,7 +39,14 @@ export default function App() {
         ?.scrollTop || 0;
   };
   const [session, setSession] = useState<SessionView>(guestSession);
+  const [testActors, setTestActors] = useState(false);
   const [panel, setPanel] = useState<Panel>("browse");
+  const [needLogin, setNeedLogin] = useState(true);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState("");
+  const [settingsBusy, setSettingsBusy] = useState(false);
+  const [settingsError, setSettingsError] = useState("");
   const [items, setItems] = useState<Item[]>([]);
   const [ai, setAi] = useState<AiStatus>({ configured: false, model: "" });
   const [detail, setDetail] = useState("");
@@ -46,6 +55,7 @@ export default function App() {
   const [to, setTo] = useState("");
   const [idleLeft, setIdleLeft] = useState(KIOSK_IDLE_MS);
   const [toast, setToast] = useState({ message: "", id: 0 });
+  const [matchingBusy, setMatchingBusy] = useState(false);
   const refreshGeneration = useRef(0);
   const actions = useRef(new Set<string>());
   const notify = useCallback(
@@ -57,11 +67,15 @@ export default function App() {
     const id = setTimeout(() => setToast((current) => ({ ...current, message: "" })), 2600);
     return () => clearTimeout(id);
   }, [toast.id, toast.message]);
+  const signedIn = session.kind !== "guest";
   const loadSession = useCallback(async (signal?: AbortSignal) => {
-    const data = await api<{ session: SessionView }>("/api/session", {
-      signal,
-    });
+    const data = await api<{ session: SessionView; testActors?: boolean }>(
+      "/api/session",
+      { signal },
+    );
     setSession(data.session);
+    setTestActors(!!data.testActors);
+    setNeedLogin(data.session.kind === "guest");
     return data.session;
   }, []);
   useEffect(() => {
@@ -69,7 +83,7 @@ export default function App() {
     void api<AiStatus>("/api/ai/status", { signal: ctrl.signal })
       .then(setAi)
       .catch(() => {});
-    void loadSession(ctrl.signal).catch(() => {});
+    void loadSession(ctrl.signal).catch(() => setNeedLogin(true));
     return () => ctrl.abort();
   }, [loadSession]);
   const refresh = useCallback(async () => {
@@ -77,9 +91,68 @@ export default function App() {
     const data = await api<{ items: Item[] }>("/api/items");
     if (token === refreshGeneration.current) setItems(sortItems(data.items));
   }, []);
+  async function loginWithPassword(input: {
+    name: string;
+    className: string;
+    password: string;
+  }) {
+    setAuthBusy(true);
+    setAuthError("");
+    try {
+      const data = await api<{ actorKey: string }>("/api/test-login", {
+        method: "POST",
+        json: input,
+      });
+      setTestActor(data.actorKey);
+      const next = await loadSession();
+      if (next.kind === "guest") {
+        setAuthError("登录失败，请检查姓名、班级和密码");
+        return;
+      }
+      notify(`已登录为 ${next.name} · ${next.className}`);
+      await refresh();
+    } catch (err) {
+      setAuthError(message(err));
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+  async function logoutToLogin() {
+    setTestActor("");
+    setSettingsOpen(false);
+    setSettingsError("");
+    setAuthError("");
+    setItems([]);
+    setDetail("");
+    setPanel("browse");
+    try {
+      await loadSession();
+      notify("已退出，请重新登录");
+    } catch (err) {
+      setNeedLogin(true);
+      notify("退出失败：" + message(err));
+    }
+  }
+  async function changePassword(input: {
+    currentPassword: string;
+    newPassword: string;
+  }) {
+    setSettingsBusy(true);
+    setSettingsError("");
+    try {
+      await api("/api/test-password", { method: "POST", json: input });
+      setSettingsOpen(false);
+      notify("密码已更新");
+    } catch (err) {
+      setSettingsError(message(err));
+    } finally {
+      setSettingsBusy(false);
+    }
+  }
   useEffect(() => {
+    if (!signedIn) return;
     void refresh().catch((err) => notify("无法连接服务器：" + message(err)));
-  }, [refresh, session.kind, notify]);
+  }, [refresh, signedIn, session.kind, notify]);
   useEffect(() => {
     if (session.kind === "kiosk") setPanel("found");
   }, [session.kind]);
@@ -88,9 +161,12 @@ export default function App() {
     if (session.kind !== "kiosk") setPanel("history");
   }, [refresh, session.kind]);
   const found = useFound(ai, notify, published);
-  useUnreadMessages(session.capabilities.readMessages, (unread) => {
-    notify(`有 ${unread} 条新的寻物配对消息，可在「消息」查看`);
-  });
+  useUnreadMessages(
+    signedIn && session.capabilities.readMessages,
+    (unread) => {
+      notify(`有 ${unread} 条新的寻物配对消息，可在「消息」查看`);
+    },
+  );
   const resetRef = useRef(found.reset);
   resetRef.current = found.reset;
   const notifyRef = useRef(notify);
@@ -121,6 +197,10 @@ export default function App() {
     };
   }, [session.kind, panel]);
   function onPanel(next: Panel) {
+    if (!signedIn) {
+      setNeedLogin(true);
+      return;
+    }
     if (session.kind === "kiosk" && next !== "found") return;
     if (next === "admin" && session.kind !== "admin") {
       notify("需要管理员权限");
@@ -170,6 +250,21 @@ export default function App() {
       actions.current.delete(item.id);
     }
   }
+  async function runMatching() {
+    if (matchingBusy) return;
+    setMatchingBusy(true);
+    try {
+      const data = await api<{ notice?: string }>("/api/matching/run", {
+        method: "POST",
+        json: {},
+      });
+      notify(data.notice || "已手动开启配对");
+    } catch (err) {
+      notify(message(err));
+    } finally {
+      setMatchingBusy(false);
+    }
+  }
   async function detailAction(action: DetailAction, body?: unknown) {
     rememberModalScroll();
     const path =
@@ -188,10 +283,7 @@ export default function App() {
       action === "reopen"
         ? { reason: (body as { reason?: string } | undefined)?.reason || "" }
         : body;
-    await api(`/api/items/${detail}/${path}`, {
-      method: "POST",
-      json: payload ?? {},
-    });
+    await api(`/api/items/${detail}/${path}`, { method: "POST", json: payload ?? {} });
     await refresh();
     notify(
       {
@@ -226,25 +318,50 @@ export default function App() {
   const mine = session.userId
     ? items.filter((item) => item.ownerId === session.userId)
     : [];
-  const canPublish = session.capabilities.publishFound;
-  const canMessage = session.capabilities.readMessages;
   return (
     <>
+      <LoginRequired
+        open={!signedIn || needLogin}
+        testActors={testActors}
+        busy={authBusy}
+        error={authError}
+        onLogin={(input) => void loginWithPassword(input)}
+      />
+      {signedIn ? (
+        <UserSettings
+          open={settingsOpen}
+          session={session}
+          busy={settingsBusy}
+          error={settingsError}
+          onClose={() => {
+            setSettingsOpen(false);
+            setSettingsError("");
+          }}
+          onChangePassword={(input) => void changePassword(input)}
+          onLogout={() => void logoutToLogin()}
+        />
+      ) : null}
+      {signedIn ? (
       <div className="app" id="app">
         <Header
           ai={ai}
           session={session}
           panel={panel}
           idleLabel={formatIdle(idleLeft)}
+          testActors={testActors}
           onPanel={onPanel}
           onEndKiosk={endKiosk}
+          onOpenSettings={() => {
+            setSettingsError("");
+            setSettingsOpen(true);
+          }}
         />
         <main>
-          {panel === "found" && canPublish && (
+          {panel === "found" && session.capabilities.publishFound && (
             <FoundIdentityBanner session={session} />
           )}
           <FoundPanel
-            active={panel === "found" && canPublish}
+            active={panel === "found" && session.capabilities.publishFound}
             m={found}
             notify={notify}
           />
@@ -268,24 +385,33 @@ export default function App() {
             }}
             onDelete={(item) => void remove(item)}
           />
-          {canMessage && (
-            <LostPanel active={panel === "lost"} notify={notify} />
+          {session.capabilities.readMessages && (
+            <LostPanel
+              active={panel === "lost"}
+              notify={notify}
+            />
           )}
-          {canMessage && (
-            <MessagesPanel active={panel === "messages"} notify={notify} />
+          {session.capabilities.readMessages && (
+            <MessagesPanel
+              active={panel === "messages"}
+              notify={notify}
+            />
           )}
           {session.kind === "admin" && (
             <AdminPanel
               active={panel === "admin"}
               items={items}
+              matchingBusy={matchingBusy}
               onOpen={setDetail}
               onDelete={(item) => void remove(item)}
               onMarkHighValue={(item) => void markHighValue(item)}
+              onRunMatching={() => void runMatching()}
             />
           )}
         </main>
       </div>
-      {selectedItem && (
+      ) : null}
+      {signedIn && selectedItem && (
         <DetailModal
           key={
             selectedItem.id +
@@ -304,9 +430,7 @@ export default function App() {
             setDetail("");
           }}
           onDelete={(item) => void remove(item)}
-          onNeedLogin={() =>
-            notify("当前可直接使用，如仍失败请刷新页面后重试")
-          }
+          onNeedLogin={() => setNeedLogin(true)}
           onAction={detailAction}
         />
       )}

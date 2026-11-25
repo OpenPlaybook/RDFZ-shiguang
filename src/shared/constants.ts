@@ -1,4 +1,8 @@
+/** 我捡到了：失物招领处默认填写，可改。 */
+export const DEFAULT_OFFICE = "逸夫楼316";
+
 export const OFFICES = [
+  "逸夫楼316",
   "学生事务中心失物招领处",
   "保卫处失物招领处",
   "图书馆总服务台",

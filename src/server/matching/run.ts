@@ -28,12 +28,12 @@ export interface RunMatchingDeps {
 
 export async function runDailyMatching(
   deps: RunMatchingDeps,
-  options: { forceDate?: string } = {},
+  options: { forceDate?: string; force?: boolean } = {},
 ): Promise<MatchingBatch | null> {
   const now = deps.now?.() ?? new Date();
   const date = options.forceDate || beijingDate(now);
   const existing = await deps.batches.read(date);
-  if (existing?.status === "completed") return existing;
+  if (existing?.status === "completed" && !options.force) return existing;
   if (existing?.status === "running") return existing;
 
   const attempt = (existing?.attempt || 0) + 1;

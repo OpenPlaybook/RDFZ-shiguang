@@ -131,23 +131,27 @@ export function HistoryPanel({ active, items, onEdit, onDelete }: HistoryProps) 
 interface AdminProps {
   active: boolean;
   items: Item[];
+  matchingBusy?: boolean;
   onOpen: (id: string) => void;
   onDelete: (item: Item) => void;
   onMarkHighValue: (item: Item) => void;
+  onRunMatching?: () => void;
 }
 export function AdminPanel({
   active,
   items,
+  matchingBusy,
   onOpen,
   onDelete,
   onMarkHighValue,
+  onRunMatching,
 }: AdminProps) {
   return (
     <section className={"panel" + (active ? " active" : "")} id="panel-admin">
       <div className="panel-head">
         <h1>管理交付</h1>
         <p>
-          查看保管情况和交付留痕。确认交付时要按平台学生 ID 查找本人，不能把管理人员写成失主。
+          查看保管情况和交付留痕。确认交付时要按平台学生 ID 查找本人，不能把管理人员写成失主。寻物配对默认每天北京时间 14:00 自动进行，也可手动开启。
         </p>
       </div>
       <div className="toolbar">
@@ -155,6 +159,17 @@ export function AdminPanel({
           共 {items.length} 条 · 高价值 {items.filter((item) => item.highValue).length} ·
           已领取 {items.filter((item) => item.status === "claimed").length}
         </span>
+        {onRunMatching ? (
+          <button
+            type="button"
+            className="btn btn-primary"
+            id="btnRunMatching"
+            disabled={!!matchingBusy}
+            onClick={onRunMatching}
+          >
+            {matchingBusy ? "配对进行中…" : "手动开启配对"}
+          </button>
+        ) : null}
       </div>
       <div className="history-list" id="adminList">
         {items.map((item) => (

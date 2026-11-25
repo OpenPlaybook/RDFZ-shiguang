@@ -77,6 +77,7 @@ function foundTexts(input: {
   description: string;
   office: string;
   place: string;
+  note: string;
   contact: string;
   contactType: string;
   contactValue: string;
@@ -86,6 +87,7 @@ function foundTexts(input: {
     description: input.description,
     office: input.office,
     place: input.place,
+    note: input.note,
     contact: input.contact,
     contactType: input.contactType,
     contactValue: input.contactValue,
@@ -103,8 +105,9 @@ export function registerFoundRoutes(app: Express, ctx: FoundWriteContext) {
       const description = text(req.body?.description);
       const office = text(req.body?.office);
       const place = text(req.body?.place);
+      const note = text(req.body?.note).slice(0, 500);
       if (!description) throw new HttpError(400, "请填写物品描述");
-      if (!office) throw new HttpError(400, "请选择失物招领处");
+      if (!office) throw new HttpError(400, "请填写所在失物招领处");
       if (!place) throw new HttpError(400, "请填写捡到场所");
       if (!req.file) throw new HttpError(400, "请上传物品照片");
       const contact = stationContact(actor, req.body || {}, ctx.stations);
@@ -117,7 +120,14 @@ export function registerFoundRoutes(app: Express, ctx: FoundWriteContext) {
       const reviewed = await ctx.review({
         kind: "found",
         revision: 1,
-        texts: foundTexts({ description, office, place, ...contact, highValue: high.value }),
+        texts: foundTexts({
+          description,
+          office,
+          place,
+          note,
+          ...contact,
+          highValue: high.value,
+        }),
         images: [path.basename(req.file.path)],
       });
       if (reviewed.status !== "allowed") {
@@ -134,6 +144,7 @@ export function registerFoundRoutes(app: Express, ctx: FoundWriteContext) {
         description,
         office,
         place,
+        note,
         contact: contact.contact,
         contact_type: contact.contactType,
         contact_value: contact.contactValue,
@@ -191,8 +202,12 @@ export function registerFoundRoutes(app: Express, ctx: FoundWriteContext) {
         req.body?.office === undefined ? existing.office : text(req.body.office);
       const place =
         req.body?.place === undefined ? existing.place : text(req.body.place);
+      const note =
+        req.body?.note === undefined
+          ? existing.note || ""
+          : text(req.body.note).slice(0, 500);
       if (!description) throw new HttpError(400, "请填写物品描述");
-      if (!office) throw new HttpError(400, "请选择失物招领处");
+      if (!office) throw new HttpError(400, "请填写所在失物招领处");
       if (!place) throw new HttpError(400, "请填写捡到场所");
       const contactFields =
         req.body?.contact === undefined &&
@@ -242,6 +257,7 @@ export function registerFoundRoutes(app: Express, ctx: FoundWriteContext) {
           description,
           office,
           place,
+          note,
           contact: contact.contact,
           contactType: contact.contactType,
           contactValue: contact.contactValue,
@@ -269,6 +285,7 @@ export function registerFoundRoutes(app: Express, ctx: FoundWriteContext) {
         row.description = description;
         row.office = office;
         row.place = place;
+        row.note = note;
         row.contact = contact.contact;
         row.contact_type = contact.contactType;
         row.contact_value = contact.contactValue;

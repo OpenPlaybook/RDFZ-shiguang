@@ -162,6 +162,7 @@ export function publicItem(record: ItemRecord, actor: CurrentActor): Item {
     description: row.description,
     place: row.place,
     office: row.office,
+    note: row.note || "",
     image: row.image,
     createdAt: row.created_at,
     status: row.status,

@@ -43,7 +43,8 @@ function createIdentityReviewer(cfg: typeof config) {
       textFields: candidate.textFields || candidate.texts || {},
       imageRef:
         candidate.imageRef ||
-        candidate.images?.find((name) => name.startsWith("staging_")),
+        candidate.images?.find((name) => name.startsWith("staging_")) ||
+        candidate.images?.[0],
     });
 }
 
@@ -62,24 +63,13 @@ try {
         config,
         store,
         resolveActor: ({ header }) => {
-          if (!config.production && config.testActors) {
-            const key = String(header("x-test-actor") || "").trim();
-            if (key) return fixtureActor(key) || { kind: "guest" as const };
-            if (config.devActor)
-              return fixtureActor(config.devActor) || {
-                kind: "guest" as const,
-              };
-          }
-          const publisherId = String(header("x-publisher-id") || "").trim();
-          if (publisherId && /^[A-Za-z0-9_-]{4,80}$/.test(publisherId)) {
-            return {
-              kind: "student" as const,
-              userId: publisherId,
-              name: "同学",
-              className: "",
-            };
-          }
-          return { kind: "guest" as const };
+          if (config.production || !config.testActors)
+            return { kind: "guest" as const };
+          const key = String(header("x-test-actor") || "").trim();
+          return (
+            (key && fixtureActor(key)) ||
+            fixtureActor(config.devActor) || { kind: "guest" as const }
+          );
         },
         reviewSubmission: createIdentityReviewer(config),
         isApprovedVersion,

@@ -45,6 +45,7 @@ export function DetailModal({
   const [note, setNote] = useState("");
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
+  const [photoZoom, setPhotoZoom] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const scrollAtOpen = useRef(initialScroll);
   const working = useRef(false);
@@ -99,7 +100,15 @@ export function DetailModal({
         aria-modal="true"
         aria-labelledby="detailTitle"
       >
-        <img id="detailImg" alt="物品照片" src={appUrl(item.image)} />
+        <button
+          type="button"
+          className="detail-photo-btn"
+          id="detailImgBtn"
+          aria-label="点击放大查看照片"
+          onClick={() => setPhotoZoom(true)}
+        >
+          <img id="detailImg" alt="物品照片" src={appUrl(item.image)} />
+        </button>
         <div className="modal-body">
           <div id="detailBadge">
             <StatusBadge item={item} />
@@ -109,6 +118,7 @@ export function DetailModal({
           <DetailRow label="捡到场所" value={item.place} />
           <DetailRow label="发布时间" value={formatTime(item.createdAt)} />
           <DetailRow label="招领处" value={item.office || "未填写"} />
+          {item.note ? <DetailRow label="备注" value={item.note} /> : null}
           <DetailRow label="当前保管" value={item.custody.label} />
           {item.contactVisible && (
             <div id="sensitiveBlock">
@@ -333,6 +343,16 @@ export function DetailModal({
           </div>
         </div>
       </div>
+      {photoZoom ? (
+        <button
+          type="button"
+          className="photo-lightbox"
+          aria-label="关闭放大照片"
+          onClick={() => setPhotoZoom(false)}
+        >
+          <img src={appUrl(item.image)} alt="物品照片全貌" />
+        </button>
+      ) : null}
     </div>
   );
 }

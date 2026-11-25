@@ -1,6 +1,7 @@
 import { Router } from "express";
 import type { Config } from "../config.js";
 import type { FileStore } from "../storage.js";
+import { HttpError } from "../errors.js";
 import { LostStore } from "../lost/store.js";
 import { MessageStore } from "../messages/store.js";
 import { BatchStore } from "../matching/batch-store.js";
@@ -101,6 +102,22 @@ export async function createLostMatching(
         isApprovedVersion,
       }),
     );
+    api.post("/matching/run", async (req, res) => {
+      const actor = await resolveActor({
+        header: (name) => {
+          const v = req.header(name);
+          return v === undefined ? undefined : String(v);
+        },
+        body: req.body,
+      });
+      if (actor.kind !== "admin")
+        throw new HttpError(403, "需要管理员才能手动开启配对");
+      const batch = await scheduler.runNow({ force: true });
+      res.json({
+        batch,
+        notice: "已手动开启配对",
+      });
+    });
     app.use("/api", api);
   };
 

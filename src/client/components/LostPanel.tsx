@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, message } from "../api";
 import type { LostPost } from "../../shared/lost";
 import { appUrl } from "../paths";
@@ -9,8 +9,8 @@ interface Props {
 }
 
 function statusLabel(post: LostPost) {
-  if (post.status === "open") return "寻找中";
   if (post.status === "found") return "已找回";
+  if (post.status === "open") return "寻找中";
   return "已关闭";
 }
 
@@ -18,6 +18,21 @@ function batchLabel(post: LostPost) {
   if (post.batchHint === "pending_batch") return " · 已发布，将在每日配对后提醒";
   if (post.batchHint === "no_candidates") return " · 本次暂未找到候选";
   return "";
+}
+
+/** 过简描述：短词组且缺少颜色/形态等特征词。 */
+export function isTooSimpleDescription(raw: string): boolean {
+  const t = raw.trim().replace(/\s+/g, "");
+  if (!t) return true;
+  if (
+    /[的色式型号折叠指针金银黑白红蓝绿黄灰粉紫橙棕]|多|双|单|大|小|新|旧|破|划痕|写有|带有|印有/.test(
+      t,
+    )
+  )
+    return false;
+  if (t.length <= 4) return true;
+  if (t.length <= 6 && !/[，,、．.；;\d]/.test(t)) return true;
+  return false;
 }
 
 export function LostPanel({ active, notify }: Props) {
@@ -28,6 +43,9 @@ export function LostPanel({ active, notify }: Props) {
   const [lostTo, setLostTo] = useState("");
   const [busy, setBusy] = useState(false);
   const [listTab, setListTab] = useState<"active" | "history">("active");
+  const [simpleWarned, setSimpleWarned] = useState(false);
+  const [recoverTarget, setRecoverTarget] = useState<LostPost | null>(null);
+  const confirmBtnRef = useRef<HTMLButtonElement>(null);
 
   const refresh = useCallback(async () => {
     const data = await api<{ posts: LostPost[] }>("/api/lost-posts?mine=1");
@@ -39,12 +57,26 @@ export function LostPanel({ active, notify }: Props) {
     void refresh().catch((err) => notify("加载寻物失败：" + message(err)));
   }, [active, refresh, notify]);
 
+  useEffect(() => {
+    if (recoverTarget) confirmBtnRef.current?.focus();
+  }, [recoverTarget]);
+
   const activePosts = posts.filter((post) => post.status === "open");
   const historyPosts = posts.filter((post) => post.status !== "open");
   const shown = listTab === "active" ? activePosts : historyPosts;
 
-  async function submit() {
+  async function submit(forceSimple = false) {
     if (busy) return;
+    const text = description.trim();
+    if (!text) {
+      notify("请填写物品描述");
+      return;
+    }
+    if (!forceSimple && isTooSimpleDescription(text) && !simpleWarned) {
+      window.alert("输入的物品描述太过简单，请更具体一点");
+      setSimpleWarned(true);
+      return;
+    }
     setBusy(true);
     try {
       const data = await api<{ post: LostPost; notice?: string }>(
@@ -52,7 +84,7 @@ export function LostPanel({ active, notify }: Props) {
         {
           method: "POST",
           json: {
-            description: description.trim(),
+            description: text,
             place: place.trim(),
             lostFrom: lostFrom || null,
             lostTo: lostTo || null,
@@ -63,6 +95,7 @@ export function LostPanel({ active, notify }: Props) {
       setPlace("");
       setLostFrom("");
       setLostTo("");
+      setSimpleWarned(false);
       setListTab("active");
       await refresh();
       notify(data.notice || "已发布寻物");
@@ -124,7 +157,10 @@ export function LostPanel({ active, notify }: Props) {
           <textarea
             rows={4}
             value={description}
-            onChange={(e) => setDescription(e.currentTarget.value)}
+            onChange={(e) => {
+              setDescription(e.currentTarget.value);
+              setSimpleWarned(false);
+            }}
             placeholder="例如：灰色保温杯，杯盖有划痕"
           />
         </label>
@@ -218,7 +254,7 @@ export function LostPanel({ active, notify }: Props) {
                 <button
                   type="button"
                   className="btn"
-                  onClick={() => void setStatus(post, "found")}
+                  onClick={() => setRecoverTarget(post)}
                 >
                   确认找回
                 </button>
@@ -244,6 +280,43 @@ export function LostPanel({ active, notify }: Props) {
           </article>
         ))}
       </div>
+      {recoverTarget ? (
+        <div
+          className="confirm-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="recoverConfirmTitle"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setRecoverTarget(null);
+          }}
+        >
+          <div className="confirm-card">
+            <p id="recoverConfirmTitle">确认已找回？</p>
+            <div className="confirm-actions">
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => setRecoverTarget(null)}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                ref={confirmBtnRef}
+                autoFocus
+                onClick={() => {
+                  const post = recoverTarget;
+                  setRecoverTarget(null);
+                  if (post) void setStatus(post, "found");
+                }}
+              >
+                确认
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

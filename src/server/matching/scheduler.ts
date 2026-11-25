@@ -5,8 +5,11 @@ import { nextBatchInstant, pastBatchTime, beijingDate } from "./time.js";
 export interface MatchingScheduler {
   start: () => void;
   stop: () => Promise<void>;
-  /** 测试用：立即尝试跑当日批次（仍尊重已完成幂等）。 */
-  runNow: (forceDate?: string) => Promise<unknown>;
+  /** 立即尝试跑当日批次；force=true 时即使当日已完成也会重跑。 */
+  runNow: (options?: {
+    forceDate?: string;
+    force?: boolean;
+  }) => Promise<unknown>;
 }
 
 /**
@@ -64,7 +67,12 @@ export function startMatchingScheduler(
   return {
     start,
     stop,
-    runNow: (forceDate) =>
-      enqueue(() => runDailyMatching(deps, { forceDate })),
+    runNow: (options) =>
+      enqueue(() =>
+        runDailyMatching(deps, {
+          forceDate: options?.forceDate,
+          force: options?.force,
+        }),
+      ),
   };
 }

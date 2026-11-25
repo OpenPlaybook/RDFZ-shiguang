@@ -6,7 +6,7 @@ import {
 import { appUrl } from "../paths";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AiStatus, FillFields, Item } from "../../shared/types";
-import { OFFICES, CONTACT_TYPES } from "../../shared/constants";
+import { DEFAULT_OFFICE, CONTACT_TYPES } from "../../shared/constants";
 import { ApiError, api, getPublisherId, message } from "../api";
 import type { ReviewIssue } from "../../shared/publication";
 import { compressImage, dataUrlToBlob, runLocalFallback } from "../images";
@@ -18,7 +18,8 @@ import {
 const empty = {
   description: "",
   place: "",
-  office: "",
+  office: DEFAULT_OFFICE,
+  note: "",
   contact: "",
   contactType: "",
   contactValue: "",
@@ -257,7 +258,7 @@ export function useFound(
     }
     for (const [field, tip] of [
       ["description", "请填写物品描述"],
-      ["office", "请选择所在失物招领处"],
+      ["office", "请填写所在失物招领处"],
       ["place", "请填写捡到场所"],
     ] as const) {
       if (!form[field].trim()) {
@@ -310,10 +311,9 @@ export function useFound(
     setReviewIssues([]);
     setForm({
       description: item.description,
-      office: OFFICES.includes(item.office)
-        ? item.office
-        : item.office || "其他 / 临时保管点",
+      office: item.office || DEFAULT_OFFICE,
       place: item.place,
+      note: item.note || "",
       contact: item.contact,
       contactType: CONTACT_TYPES.includes(item.contactType)
         ? item.contactType

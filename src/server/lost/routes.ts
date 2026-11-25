@@ -10,6 +10,7 @@ import type {
   ReviewSubmission,
 } from "../../shared/b-contracts.js";
 import type { LostPost, LostPostInput } from "../../shared/lost.js";
+import type { ReviewResult } from "../../shared/publication.js";
 
 function requireStudent(actor: CurrentActor) {
   if (actor.kind === "guest" || !actor.userId)
@@ -17,6 +18,26 @@ function requireStudent(actor: CurrentActor) {
   if (actor.kind === "kiosk")
     throw new HttpError(403, "公共账号不能发布寻物或查看私人消息");
   return actor as CurrentActor & { userId: string };
+}
+
+/** 寻物不进人审。uncertain 直接公开；危险物品仍拦截；明确违规与审核故障不公开。 */
+function lostHoldReason(review: ReviewResult, editing: boolean): string | null {
+  if (review.status === "allowed") return null;
+  if (review.status === "uncertain") {
+    const danger = review.issues.find((issue) =>
+      /老师|枪支|爆炸|毒品|危险/.test(issue.message),
+    );
+    if (!danger) return null;
+    return danger.message;
+  }
+  if (review.status === "rejected") {
+    return editing
+      ? "修改未通过审核，已保留原合规版本"
+      : "寻物内容未通过审核";
+  }
+  return editing
+    ? "审核服务暂不可用，已保留原合规版本"
+    : "审核服务暂不可用";
 }
 
 function parseInput(body: Record<string, unknown>): LostPostInput {
@@ -104,14 +125,10 @@ export function lostRouter(deps: {
       },
       imageRef: input.image || undefined,
     });
-    if (review.status !== "allowed") {
+    const hold = lostHoldReason(review, false);
+    if (hold) {
       res.status(review.status === "unavailable" ? 503 : 422).json({
-        error:
-          review.status === "rejected"
-            ? "寻物内容未通过审核"
-            : review.status === "uncertain"
-              ? "寻物内容待人工确认，暂未公开"
-              : "审核服务暂不可用",
+        error: hold,
         issues: review.issues,
       });
       return;
@@ -196,14 +213,11 @@ export function lostRouter(deps: {
           },
           imageRef: input.image || undefined,
         });
-        if (review.status !== "allowed") {
+        const hold = lostHoldReason(review, true);
+        if (hold) {
           throw new HttpError(
             review.status === "unavailable" ? 503 : 422,
-            review.status === "rejected"
-              ? "修改未通过审核，已保留原合规版本"
-              : review.status === "uncertain"
-                ? "修改待确认，已保留原合规版本"
-                : "审核服务暂不可用，已保留原合规版本",
+            hold,
           );
         }
         next = {

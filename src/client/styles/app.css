@@ -886,6 +886,68 @@ textarea {
   object-fit: cover;
   background: #dfecea;
 }
+.detail-photo-btn {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+}
+.detail-photo-btn img {
+  display: block;
+  pointer-events: none;
+}
+.photo-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: 16px;
+  border: 0;
+  background: rgba(10, 18, 20, 0.92);
+  cursor: zoom-out;
+}
+.photo-lightbox img {
+  max-width: min(96vw, 1100px);
+  max-height: 92vh;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  aspect-ratio: auto;
+  border-radius: 8px;
+  background: transparent;
+}
+.confirm-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 130;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(26, 42, 46, 0.45);
+  backdrop-filter: blur(4px);
+}
+.confirm-card {
+  width: min(360px, 100%);
+  background: #fff;
+  border-radius: 16px;
+  padding: 24px 22px;
+  box-shadow: var(--shadow);
+  text-align: center;
+}
+.confirm-card p {
+  margin: 0 0 18px;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+.confirm-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
 .modal-body {
   padding: 22px;
 }

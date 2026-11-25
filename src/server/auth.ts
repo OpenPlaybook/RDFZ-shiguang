@@ -74,23 +74,10 @@ export function fixtureActor(key: string): CurrentActor | null {
   return FIXTURE_ACTORS[key] ? sanitizeActor(FIXTURE_ACTORS[key]) : null;
 }
 export function resolveActor(req: Request, config: Config): CurrentActor {
-  // 本地显式打开测试夹具时，优先使用 X-Test-Actor。
-  if (!config.production && config.testActors) {
-    const key = String(req.header("X-Test-Actor") || "").trim();
-    if (key) return fixtureActor(key) ?? guestActor();
-    if (config.devActor) return fixtureActor(config.devActor) ?? guestActor();
-  }
-  // 学校平台登录尚未接入：用浏览器发布者 ID 作为临时同学身份，避免部署后无法使用。
-  const publisherId = String(req.header("X-Publisher-Id") || "").trim();
-  if (publisherId && /^[A-Za-z0-9_-]{4,80}$/.test(publisherId)) {
-    return sanitizeActor({
-      kind: "student",
-      userId: publisherId,
-      name: "同学",
-      className: "",
-    });
-  }
-  return guestActor();
+  if (config.production || !config.testActors) return guestActor();
+  const key = String(req.header("X-Test-Actor") || "").trim();
+  if (key) return fixtureActor(key) ?? guestActor();
+  return fixtureActor(config.devActor) ?? guestActor();
 }
 export function actorProvenance(
   config: Config,

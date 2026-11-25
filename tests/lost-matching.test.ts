@@ -144,6 +144,39 @@ describe("lost posts and daily matching", () => {
     expect(data.notice).toContain("每日配对");
   });
 
+  it("publishes lost posts marked uncertain instead of waiting for a person", async () => {
+    const direct = await createLostMatching({
+      config,
+      store,
+      allowTestActor: true,
+      allowTestModeration: false,
+      reviewSubmission: async () => ({
+        status: "uncertain",
+        issues: [{ field: "description", message: "信息较少，待人工确认" }],
+      }),
+      matchAi: async () => [],
+    });
+    const app = express();
+    app.use(express.json({ limit: "2mb" }));
+    direct.mountRoutes(app);
+    app.use(errorHandler);
+    const srv = app.listen(0, "127.0.0.1");
+    await new Promise<void>((r) => srv.once("listening", r));
+    const url = `http://127.0.0.1:${(srv.address() as { port: number }).port}`;
+    const res = await fetch(`${url}/api/lost-posts`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ description: "灰色水杯" }),
+    });
+    expect(res.status).toBe(201);
+    const data = (await res.json()) as { post: { status: string } };
+    expect(data.post.status).toBe("open");
+    await direct.scheduler.stop();
+    await new Promise<void>((resolve, reject) =>
+      srv.close((err) => (err ? reject(err) : resolve())),
+    );
+  });
+
   it("rejects moderation failures without creating public post", async () => {
     const blocked = await createLostMatching({
       config,
