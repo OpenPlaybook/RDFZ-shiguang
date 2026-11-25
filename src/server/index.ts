@@ -63,8 +63,7 @@ try {
         config,
         store,
         resolveActor: ({ header }) => {
-          if (config.production || !config.testActors)
-            return { kind: "guest" as const };
+          if (!config.testActors) return { kind: "guest" as const };
           const key = String(header("x-test-actor") || "").trim();
           return (
             (key && fixtureActor(key)) ||

@@ -9,9 +9,9 @@ import {
   type StationProfile,
 } from "../shared/identity.js";
 /**
- * 测试夹具只在非生产且显式打开 SHIGUANG_TEST_ACTORS 时生效。
+ * 试用夹具在 config.testActors 打开时生效（平台登录接入前默认打开）。
  * 请求头只能选择这里的键，不能传入任意 userId、姓名或角色。
- * 这些不是真实学生，也不能在生产环境当作平台登录。
+ * 这些不是真实学生，不能当作学校平台登录。
  */
 export const FIXTURE_ACTORS: Record<string, CurrentActor> = {
   student: {
@@ -74,7 +74,7 @@ export function fixtureActor(key: string): CurrentActor | null {
   return FIXTURE_ACTORS[key] ? sanitizeActor(FIXTURE_ACTORS[key]) : null;
 }
 export function resolveActor(req: Request, config: Config): CurrentActor {
-  if (config.production || !config.testActors) return guestActor();
+  if (!config.testActors) return guestActor();
   const key = String(req.header("X-Test-Actor") || "").trim();
   if (key) return fixtureActor(key) ?? guestActor();
   return fixtureActor(config.devActor) ?? guestActor();
@@ -83,12 +83,11 @@ export function actorProvenance(
   config: Config,
   actor: CurrentActor,
 ): "none" | "test" {
-  if (config.production || !config.testActors || actor.kind === "guest")
-    return "none";
+  if (!config.testActors || actor.kind === "guest") return "none";
   return "test";
 }
 export function lookupStudent(userId: string, config: Config): LookupResult {
-  if (config.production || !config.testActors) return { status: "unavailable" };
+  if (!config.testActors) return { status: "unavailable" };
   const student = FIXTURE_STUDENTS.find((item) => item.userId === userId);
   return student ? { status: "found", student } : { status: "absent" };
 }

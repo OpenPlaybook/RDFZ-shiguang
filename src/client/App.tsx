@@ -322,7 +322,6 @@ export default function App() {
     <>
       <LoginRequired
         open={!signedIn || needLogin}
-        testActors={testActors}
         busy={authBusy}
         error={authError}
         onLogin={(input) => void loginWithPassword(input)}

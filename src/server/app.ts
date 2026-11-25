@@ -63,8 +63,7 @@ export function createApp(
   deps: AppDeps = {},
 ) {
   const stations =
-    deps.stations ??
-    (!config.production && config.testActors ? FIXTURE_STATIONS : []);
+    deps.stations ?? (config.testActors ? FIXTURE_STATIONS : []);
   const stationUserIds = stations.map((station) => station.userId);
   async function actorOf(req: Request) {
     const resolved = deps.resolveActor
@@ -96,12 +95,12 @@ export function createApp(
         stationFor(actor, stations),
         deps.resolveActor ? "test" : actorProvenance(config, actor),
       ),
-      /** 仅非生产且打开测试身份时，前端可展示本地试用登录。 */
-      testActors: !config.production && config.testActors,
+      /** 试用登录是否开放（平台登录接入前默认开放）。 */
+      testActors: config.testActors,
     });
   });
   app.post("/api/test-login", async (req, res) => {
-    if (config.production || !config.testActors)
+    if (!config.testActors)
       throw new HttpError(403, "当前环境不开放试用登录");
     const name = text(req.body?.name);
     const className = text(req.body?.className);
@@ -120,7 +119,7 @@ export function createApp(
     });
   });
   app.post("/api/test-password", async (req, res) => {
-    if (config.production || !config.testActors)
+    if (!config.testActors)
       throw new HttpError(403, "当前环境不开放修改试用密码");
     const actor = await actorOf(req);
     if (actor.kind !== "student" || !actor.userId)
