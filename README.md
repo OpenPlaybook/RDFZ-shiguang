@@ -13,15 +13,13 @@ pnpm dev
 
 打开终端显示的 http://localhost:3080 。一条命令启动前后端；相机需要允许浏览器访问。本机使用 HTTP，不生成自签证书。
 
-不配置 AI 或管理员也可浏览、手动填写和发帖。需要这些功能时，把 .env.example 复制为 .env，填写：
+不配置 AI 也可浏览。发布、领取和管理员操作需要学校平台身份；平台登录尚未接入，生产环境不会接受浏览器自报的用户 ID 或角色。本地模块测试可在非生产进程设置 `SHIGUANG_TEST_ACTORS=1`，需要连发布表单一起测时再加 `SHIGUANG_TEST_REVIEW=allow`。这两个开关会被生产环境忽略，不是平台登录，也不能在页面上切换管理员。需要 AI 时，把 .env.example 复制为 .env，填写：
 
 ```dotenv
 DEEPSEEK_API_KEY=你的DeepSeek密钥
-ADMIN_PIN=自行设置的管理员口令
-ADMIN_TOKEN_SECRET=至少32字符的随机签名密钥
 ```
 
-AI 地址/模型在 src/server/config.ts 统一定义，使用 deepseek-flash；Key 只在后端读取。没有网页配置 Key 或其他服务商入口。可用 `node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"` 生成管理员签名密钥。不要将真实 .env、Key 或个人数据提交 Git。
+AI 地址/模型在 src/server/config.ts 统一定义，使用 deepseek-flash；Key 只在后端读取。没有网页配置 Key 或其他服务商入口。不要将真实 .env、Key 或个人数据提交 Git。管理员口令不再授予权限。
 
 ## 构建和检查
 
@@ -35,7 +33,7 @@ pnpm start
 
 生产服务默认监听 3080，HTTPS 由反向代理或托管平台提供。PORT 可改变监听端口。生产依赖安装前先完成构建，运行只需自包含的 dist/，无需携带 node_modules。GitHub 检查工作流随代码提供，未推送前不代表远程 CI 已执行。
 
-`pnpm test:ui` 用独立 .data-ui/ 数据和测试口令执行浏览器流程，不使用真实 AI；首次需 `pnpm exec playwright install chromium`。若测试环境已有 Chromium，可设置 PLAYWRIGHT_CHROMIUM_EXECUTABLE 指向它。UI 测试会启动自己的本地服务，测试端口为 3188，不要同时运行多份。
+`pnpm test:ui` 用独立 .data-ui/ 数据和服务端测试身份执行浏览器流程，不使用真实 AI；首次需 `pnpm exec playwright install chromium`。若测试环境已有 Chromium，可设置 PLAYWRIGHT_CHROMIUM_EXECUTABLE 指向它。UI 测试会启动自己的本地服务，测试端口为 3188，不要同时运行多份。
 
 ## 数据目录和并发
 
@@ -47,7 +45,7 @@ data/
   tmp/                  上传暂存
 ```
 
-唯一 DATA_DIR 指定数据根目录，默认项目根 data/；相对路径始终按项目根解析，不随启动位置变化。图片对外 URL 保持 /uploads/，私有数据没有静态访问入口。代码升级/构建不会清空数据。
+唯一 DATA_DIR 指定数据根目录，默认项目根 data/；相对路径始终按项目根解析，不随启动位置变化。图片地址仍是 /uploads/，但只返回已审核且未撤下版本引用的文件。私有数据没有静态访问入口。代码升级/构建不会清空数据。
 
 同一帖子的完整读改写按 ID 排队，不同帖子可并行；通过同目录临时文件及原子替换避免半写入。一个数据目录仅允许一个服务实例，目录租约锁阻止重复启动；异常退出后租约过期才能接管。不要手动删除仍有效的锁，不支持 cluster、多副本共享或网络盘写入。数据损坏、权限或磁盘错误会失败，不会当空数据覆盖。
 
@@ -69,15 +67,13 @@ pnpm import:data "/原项目目录" "/新项目数据目录"
 
 ### 原浏览器身份
 
-“我的历史”依赖浏览器 localStorage；协议、域名或端口变化就不是同一存储范围。导入服务器文件不会自动迁移浏览器身份。
-
-需要保留原身份时，在原站点浏览器控制台执行 `localStorage.getItem('shiguang_publisher_id_v1')`，复制结果；在新站点同一使用者的控制台执行 `localStorage.setItem('shiguang_publisher_id_v1', '复制的发布者ID')` 后刷新。不要分享该 ID 或把其他人的 ID 导入自己的浏览器，不要批量改帖子的 owner_id。该方式延续原匿名机制，不是可信账号认证。
+旧的 localStorage 匿名 ID 不再代表发布者或领取人。历史帖子不会按浏览器 ID 自动挂到新的平台账号上。物品 ID 保持不变。旧的“管理人员 / admin”领取记录仍按当时的事实保留，不会改写成老师已核验。
 
 ## 结构与范围
 
 src/client/ 保存页面、组件、状态和原视觉样式；src/server/ 保存接口、文件存储、上传和 DeepSeek；src/shared/ 保存类型和业务常量。介绍页地址为 /intro.html。
 
-保留原匿名身份、管理员口令和业务规则。当前发布者身份可由客户端自报，AI 没有完整限流/额度体系，这些仍需在公网运营前专项处理。文件存储面向单实例，不提供数据库、多机事务或热备份。
+游客可以浏览已审核公开的招领。个人发布、本人登记领取和消息使用平台用户 ID、姓名和班级，不收集手机号。公共终端只发布并在结束或闲置两分钟后清空表单。高价值物品（手机、电脑、平板、耳机、智能手表）只能由管理员在交到老师处之后确认交付。文件存储面向单实例，不提供数据库、多机事务或热备份。学校平台登录尚未接入。
 
 原页面字体来自 Google Fonts，网络不可达时使用 CSS 指定的回退字体。相机权限和系统字体渲染取决于浏览器/设备。未在某个平台实际测试的内容不宣称通过。
 
@@ -87,4 +83,4 @@ src/client/ 保存页面、组件、状态和原视觉样式；src/server/ 保�
 
 业务数据默认保存到平台 RDFZ_OPUS_ROOT/data，独立于发布版本；本机仍使用项目 data/，DATA_DIR 可显式覆盖。健康检查不初始化数据或获取数据锁，首次业务请求才获取独占锁；平台更新时先检查候选，再排空并关闭旧版本，最后由新版本接管数据。不能让其他服务同时写这个数据目录。
 
-平台登记使用既有 envFile/envNames 白名单，仅将平台配置的 DEEPSEEK_API_KEY 交给应用后端。无需在本仓库或前端填写密钥，构建环境不接收密钥。管理员功能仍需独立配置 ADMIN_PIN / ADMIN_TOKEN_SECRET，未配置时不启用。
+平台登记使用既有 envFile/envNames 白名单，仅将平台配置的 DEEPSEEK_API_KEY 交给应用后端。无需在本仓库或前端填写密钥，构建环境不接收密钥。`lesson.application.json` 的 `bridge` 不是身份协议。平台仍需提供稳定用户 ID、姓名、班级、登录回传、请求鉴权，以及管理员、公共终端和学生检索的授权方式。

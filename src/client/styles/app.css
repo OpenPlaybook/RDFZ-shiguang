@@ -1177,3 +1177,13 @@ textarea {
     flex: 1;
   }
 }
+
+.identity-banner {
+  margin: 0 0 18px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--ink);
+  line-height: 1.55;
+}

@@ -5,72 +5,90 @@ import express from "express";
 import { configFromEnv } from "./config.js";
 import { FileStore } from "./storage.js";
 import { createApp, errorHandler } from "./app.js";
+import { fixtureActor } from "./auth.js";
 import {
   createLostMatching,
   type LostMatchingHandles,
 } from "./lost-matching/mount.js";
+import { createDefaultReviewer } from "./moderation/review.js";
 import {
-  createModerationPublication,
-  type ModerationPublicationHandles,
-} from "./moderation-publication/mount.js";
+  isApprovedVersion,
+  type ReviewCandidate as IdentityReviewCandidate,
+} from "../shared/identity.js";
 
 const config = configFromEnv();
 const store = new FileStore(config.dataDir);
 let storeReady: Promise<FileStore> | undefined;
-let handoffC: ModerationPublicationHandles | undefined;
-let handoffCReady: Promise<ModerationPublicationHandles> | undefined;
 let handoffB: LostMatchingHandles | undefined;
-let handoffBReady: Promise<LostMatchingHandles> | undefined;
 const acquireStore = () =>
   (storeReady ??= store.acquire().catch((error) => {
     storeReady = undefined;
     throw error;
   }));
+
+/** 把 C 的审核接到 A 的 ReviewCandidate（texts/images）。 */
+function createIdentityReviewer(cfg: typeof config) {
+  const review = createDefaultReviewer(cfg);
+  return async (candidate: IdentityReviewCandidate) =>
+    review({
+      kind: candidate.kind,
+      revision: candidate.revision,
+      textFields: candidate.texts,
+      imageRef: candidate.images.find((name) => name.startsWith("staging_")),
+    });
+}
+
 try {
   const app = express();
   const routes = express.Router();
-  const business = createApp(config, store);
-  const ensureHandoffC = () =>
-    (handoffCReady ??= (async () => {
-      await acquireStore();
-      if (!handoffC) {
-        handoffC = await createModerationPublication({ config, store });
-        business.mountExtraApi((router) => handoffC!.mountRoutes(router));
-      }
-      return handoffC;
-    })().catch((error) => {
-      handoffCReady = undefined;
-      throw error;
-    }));
-  const ensureHandoffB = () =>
-    (handoffBReady ??= (async () => {
-      const publication = await ensureHandoffC();
-      if (!handoffB) {
-        handoffB = await createLostMatching({
-          config,
-          store,
-          reviewSubmission: publication.reviewSubmission,
-          isApprovedVersion: publication.isApprovedVersion,
-        });
-        business.mountExtraApi((router) => handoffB!.mountRoutes(router));
-        handoffB.scheduler.start();
-      }
-      return handoffB;
-    })().catch((error) => {
-      handoffBReady = undefined;
-      throw error;
-    }));
+  const handoffRouter = express.Router();
+  // B 的寻物调度在拿到数据目录锁之后启动。健康检查不进入这里，也不抢锁。
+  // C 的审核接在 createApp 的 reviewSubmission 注入点。
+  let integrationsStarted = false;
+  const startOwnedIntegrations = async () => {
+    if (integrationsStarted) return;
+    integrationsStarted = true;
+    if (!handoffB) {
+      handoffB = await createLostMatching({
+        config,
+        store,
+        resolveActor: ({ header }) => {
+          if (config.production || !config.testActors)
+            return { kind: "guest" as const };
+          const key = String(header("x-test-actor") || "").trim();
+          return (
+            (key && fixtureActor(key)) ||
+            fixtureActor(config.devActor) || { kind: "guest" as const }
+          );
+        },
+        reviewSubmission: createIdentityReviewer(config),
+        isApprovedVersion,
+      });
+      handoffB.mountRoutes(handoffRouter);
+      handoffB.scheduler.start();
+    }
+  };
+  const stopOwnedIntegrations = async () => {
+    if (handoffB) {
+      await handoffB.scheduler.stop();
+      handoffB = undefined;
+    }
+    integrationsStarted = false;
+  };
   // Candidate health checks must not acquire the previous release's data lease.
   routes.get("/api/health", (_req, res) => res.json({ ok: true }));
   routes.use(["/api", "/uploads"], async (_req, _res, next) => {
     try {
       await acquireStore();
-      await ensureHandoffC();
-      await ensureHandoffB();
+      await startOwnedIntegrations();
       next();
     } catch (error) {
       next(error);
     }
+  });
+  routes.use(handoffRouter);
+  const business = createApp(config, store, fetch, {
+    reviewSubmission: createIdentityReviewer(config),
   });
   routes.use(business);
   app.use(config.basePath || "/", routes);
@@ -141,7 +159,7 @@ try {
     config.production && !process.env.RDFZ_LESSON_ID ? "0.0.0.0" : "127.0.0.1",
     () =>
       console.log(
-        `拾光已启动：http://localhost:${config.port}\n数据目录：${config.dataDir}\nAI：${config.aiKey ? "DeepSeek 已配置" : "未配置，支持手动填写"}\n管理功能：${config.adminPin ? "已配置" : "未配置"}`,
+        `拾光已启动：http://localhost:${config.port}\n数据目录：${config.dataDir}\nAI：${config.aiKey ? "DeepSeek 已配置" : "未配置，支持手动填写"}\n身份：学校平台登录尚未接入${config.testActors ? "（当前进程打开了测试身份）" : "，写操作需要平台身份"}`,
       ),
   );
   let stopping = false;
@@ -153,10 +171,10 @@ try {
     );
     void (async () => {
       try {
-        if (handoffB) await handoffB.scheduler.stop();
         await closeFrontend();
       } finally {
         await drained;
+        await stopOwnedIntegrations();
         if (storeReady) {
           await storeReady.catch(() => {});
           await store.close();
@@ -170,8 +188,8 @@ try {
   };
   server.on("error", async (err) => {
     console.error("启动失败：", err.message);
-    if (handoffB) await handoffB.scheduler.stop().catch(() => {});
     await closeFrontend();
+    await stopOwnedIntegrations().catch(() => {});
     if (storeReady) {
       await storeReady.catch(() => {});
       await store.close();
@@ -181,7 +199,6 @@ try {
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);
 } catch (err) {
-  if (handoffB) await handoffB.scheduler.stop().catch(() => {});
   if (storeReady) {
     await storeReady.catch(() => {});
     await store.close();

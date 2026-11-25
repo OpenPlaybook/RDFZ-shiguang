@@ -1,6 +1,10 @@
 import { appUrl } from "./paths";
-import { ADMIN_TOKEN_KEY, PUBLISHER_KEY } from "../shared/constants";
 import type { ReviewIssue, ReviewStatus } from "../shared/publication";
+
+/** 发布者身份由服务端会话决定。保留空实现，避免发布模块继续写入匿名 ID。 */
+export function getPublisherId() {
+  return "";
+}
 
 export class ApiError extends Error {
   status: number;
@@ -20,24 +24,12 @@ export class ApiError extends Error {
   }
 }
 
-export function getPublisherId() {
-  let id = localStorage.getItem(PUBLISHER_KEY);
-  if (!id) {
-    id =
-      "pub_" + Date.now().toString(36) + "_" + crypto.randomUUID().slice(0, 8);
-    localStorage.setItem(PUBLISHER_KEY, id);
-  }
-  return id;
-}
 export async function api<T>(
   url: string,
   options: RequestInit & { json?: unknown } = {},
 ): Promise<T> {
   const { json, ...init } = options;
   const headers = new Headers(init.headers);
-  headers.set("X-Publisher-Id", getPublisherId());
-  const token = sessionStorage.getItem(ADMIN_TOKEN_KEY);
-  if (token) headers.set("X-Admin-Token", token);
   if (json !== undefined) headers.set("Content-Type", "application/json");
   let response: Response;
   try {
@@ -55,13 +47,21 @@ export async function api<T>(
     status?: ReviewStatus;
     issues?: ReviewIssue[];
   };
-  if (!response.ok)
+  if (!response.ok) {
+    const reviewStatus =
+      data.status ||
+      (response.status === 503
+        ? "unavailable"
+        : response.status === 422
+          ? "rejected"
+          : undefined);
     throw new ApiError(
       data.error || `请求失败 (${response.status})`,
       response.status,
       Array.isArray(data.issues) ? data.issues : [],
-      data.status,
+      reviewStatus,
     );
+  }
   return data;
 }
 export const message = (err: unknown) =>

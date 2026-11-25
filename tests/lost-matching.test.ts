@@ -3,8 +3,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { Server } from "node:http";
+import express from "express";
 import { FileStore } from "../src/server/storage.js";
-import { createApp, errorHandler } from "../src/server/app.js";
+import { errorHandler } from "../src/server/app.js";
 import { createLostMatching } from "../src/server/lost-matching/mount.js";
 import { parseMatchResponse } from "../src/server/matching/ai.js";
 import {
@@ -91,6 +92,9 @@ describe("lost posts and daily matching", () => {
       tokenSecret: "",
       aiKey: "",
       production: false,
+      testActors: true,
+      testReviewAllow: true,
+      devActor: "",
     };
     handles = await createLostMatching({
       config,
@@ -99,8 +103,9 @@ describe("lost posts and daily matching", () => {
       allowTestModeration: true,
       matchAi: async () => [],
     });
-    const app = createApp(config, store);
-    app.mountExtraApi((r) => handles.mountRoutes(r));
+    const app = express();
+    app.use(express.json({ limit: "2mb" }));
+    handles.mountRoutes(app);
     app.use(errorHandler);
     server = app.listen(0, "127.0.0.1");
     await new Promise<void>((r) => server.once("listening", r));
@@ -151,8 +156,9 @@ describe("lost posts and daily matching", () => {
       }),
       matchAi: async () => [],
     });
-    const app = createApp(config, store);
-    app.mountExtraApi((r) => blocked.mountRoutes(r));
+    const app = express();
+    app.use(express.json({ limit: "2mb" }));
+    blocked.mountRoutes(app);
     app.use(errorHandler);
     const srv = app.listen(0, "127.0.0.1");
     await new Promise<void>((r) => srv.once("listening", r));

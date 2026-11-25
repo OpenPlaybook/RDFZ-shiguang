@@ -3,8 +3,9 @@ import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { Server } from "node:http";
+import express from "express";
 import { FileStore } from "../src/server/storage.js";
-import { createApp, errorHandler } from "../src/server/app.js";
+import { errorHandler } from "../src/server/app.js";
 import { createModerationPublication } from "../src/server/moderation-publication/mount.js";
 import {
   createHeuristicReviewer,
@@ -70,14 +71,18 @@ describe("found-posts publication flow", () => {
       tokenSecret: "",
       aiKey: "",
       production: false,
+      testActors: true,
+      testReviewAllow: false,
+      devActor: "",
     };
     const handles = await createModerationPublication({
       config,
       store,
       reviewSubmission: createHeuristicReviewer(),
     });
-    const app = createApp(config, store);
-    app.mountExtraApi((r) => handles.mountRoutes(r));
+    const app = express();
+    app.use(express.json({ limit: "2mb" }));
+    handles.mountRoutes(app);
     app.use(errorHandler);
     server = app.listen(0, "127.0.0.1");
     await new Promise<void>((r) => server.once("listening", r));
@@ -183,8 +188,9 @@ describe("found-posts publication flow", () => {
       store,
       reviewSubmission: createUnavailableReviewer(),
     });
-    const app = createApp(config, store);
-    app.mountExtraApi((r) => blocked.mountRoutes(r));
+    const app = express();
+    app.use(express.json({ limit: "2mb" }));
+    blocked.mountRoutes(app);
     app.use(errorHandler);
     const srv = app.listen(0, "127.0.0.1");
     await new Promise<void>((r) => srv.once("listening", r));

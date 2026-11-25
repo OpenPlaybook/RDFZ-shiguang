@@ -5,10 +5,17 @@ export interface Config {
   basePath?: string;
   dataDir: string;
   port: number;
+  /** 不再用于授权。保留字段以免旧环境文件导致启动失败。 */
   adminPin: string;
   tokenSecret: string;
   aiKey: string;
   production: boolean;
+  /** 仅非生产、且显式打开时允许选择服务端测试身份。不是平台登录。 */
+  testActors: boolean;
+  /** 仅测试身份打开时，才允许跳过尚未接入的审核。生产环境永远关闭。 */
+  testReviewAllow: boolean;
+  /** 本地试用时的默认夹具键。请求没有指定测试身份时才使用。 */
+  devActor: string;
 }
 export const DEEPSEEK_URL = "https://api.deepseek.com/chat/completions";
 export const DEEPSEEK_MODEL = "deepseek-flash";
@@ -19,10 +26,10 @@ export function configFromEnv(): Config {
     throw new Error("PORT 必须是有效端口");
   const adminPin = process.env.ADMIN_PIN?.trim() || "";
   const tokenSecret = process.env.ADMIN_TOKEN_SECRET?.trim() || "";
-  if ((adminPin || tokenSecret) && (!adminPin || tokenSecret.length < 32))
-    throw new Error(
-      "启用管理功能需同时配置 ADMIN_PIN 和至少 32 字符的 ADMIN_TOKEN_SECRET",
-    );
+  const production =
+    process.env.NODE_ENV === "production" ||
+    process.argv.includes("--production");
+  const testActors = !production && process.env.SHIGUANG_TEST_ACTORS === "1";
   return {
     root,
     publicDir: path.resolve(import.meta.dirname, "../public"),
@@ -37,8 +44,13 @@ export function configFromEnv(): Config {
     adminPin,
     tokenSecret,
     aiKey: process.env.DEEPSEEK_API_KEY?.trim() || "",
-    production:
-      process.env.NODE_ENV === "production" ||
-      process.argv.includes("--production"),
+    production,
+    testActors,
+    testReviewAllow:
+      testActors && process.env.SHIGUANG_TEST_REVIEW === "allow",
+    devActor:
+      testActors && /^[a-z]{1,16}$/.test(process.env.SHIGUANG_DEV_ACTOR || "")
+        ? process.env.SHIGUANG_DEV_ACTOR!.trim()
+        : "",
   };
 }

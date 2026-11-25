@@ -1,3 +1,5 @@
+import type { Publication } from "./identity.js";
+export type { Publication };
 export interface Profile {
   identity: string;
   className: string;
@@ -5,9 +7,44 @@ export interface Profile {
   idNo: string;
   contact: string;
 }
-export interface Claim extends Profile {
+export interface Custody {
+  heldBy: "finder" | "station" | "teacher";
+  location: string;
+  receivedAt: string | null;
+  receivedByUserId: string | null;
+  note: string;
+}
+export interface DeliveryRecord {
+  claimantUserId: string;
+  name: string;
+  className: string;
+  at: string;
+  source: "self" | "admin" | "legacy";
+  operatorUserId: string;
+  note: string;
+  active: boolean;
+  closedAt: string | null;
+  closeReason: string | null;
+}
+export interface IntentRecord {
+  userId: string;
+  name: string;
+  className: string;
+  at: string;
+}
+export interface Claim {
+  claimantUserId: string;
+  name: string;
+  className: string;
   claimedAt: string;
-  byAdmin: boolean;
+  source: "self" | "admin" | "legacy";
+  claimLabel: string;
+  operatorUserId: string;
+  note: string;
+  identity?: string;
+  idNo?: string;
+  contact?: string;
+  byAdmin?: boolean;
 }
 export interface Verification {
   verifiedAt: string;
@@ -19,10 +56,6 @@ export interface ViewLog extends Profile {
   unlockedAt: string;
   viewedFields: string[];
 }
-export interface PublicationInfo {
-  approvedRevision: number;
-  reviewedAt: string;
-}
 export interface Item {
   id: string;
   ownerId: string;
@@ -32,17 +65,28 @@ export interface Item {
   contact: string;
   contactType: string;
   contactValue: string;
+  contactVisible: boolean;
   image: string;
   createdAt: string;
-  status: "open" | "claimed";
+  status: "open" | "claimed" | "withdrawn";
+  revision: number;
+  publication: Publication | null;
+  approved: boolean;
+  highValue: boolean;
+  custody: {
+    heldBy: Custody["heldBy"];
+    location: string;
+    teacherReceived: boolean;
+    label: string;
+  };
   claim: Claim | null;
-  verified: Verification | null;
-  viewLogs: ViewLog[];
-  unlocked: boolean;
+  claimVisible: boolean;
+  claimLog: DeliveryRecord[];
+  intents: IntentRecord[];
+  myIntent: boolean;
   isOwner: boolean;
-  /** C：内容版本；缺省表示历史未接入审核。 */
-  revision?: number;
-  publication?: PublicationInfo | null;
+  legacyVerification: { at: string; note: string } | null;
+  viewLogs: ViewLog[];
 }
 export interface ItemRow {
   id: string;
@@ -53,13 +97,18 @@ export interface ItemRow {
   contact: string;
   contact_type: string;
   contact_value: string;
+  contact_scope?: "private" | "station";
   image: string;
   created_at: string;
-  status: "open" | "claimed";
-  claim: Claim | null;
-  verified: Verification | null;
+  status: "open" | "claimed" | "withdrawn";
   revision?: number;
-  publication?: PublicationInfo | null;
+  publication?: Publication | null;
+  high_value?: boolean;
+  custody?: Custody;
+  claim: Claim | DeliveryRecord | null;
+  claim_log?: DeliveryRecord[];
+  intents?: IntentRecord[];
+  verified: Verification | null;
 }
 export interface ViewLogRow {
   id: string;

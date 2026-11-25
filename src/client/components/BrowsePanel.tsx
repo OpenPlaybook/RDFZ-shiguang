@@ -27,7 +27,7 @@ export function BrowsePanel({
       <div className="panel-head">
         <h1>浏览捡到的物品</h1>
         <p>
-          待认领帖默认只显示捡到场所与发布时间。填写个人信息后，方可查看失物招领处、联系人与联系方式。
+          可以按关键词或时间查看已公开的招领。保管位置直接显示；个人联系方式不会因为已领取就公开。
         </p>
       </div>
       <div className="toolbar">

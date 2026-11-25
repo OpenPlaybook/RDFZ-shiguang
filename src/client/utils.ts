@@ -13,11 +13,12 @@ export const formatContactWay = (item: Item) =>
       ? `${item.contactType}：${item.contactValue}`
       : item.contactValue
     : "未填写";
+const statusRank = { open: 0, claimed: 1, withdrawn: 2 };
 export const sortItems = (items: Item[]) =>
   items
     .slice()
     .sort(
       (a, b) =>
-        Number(!!a.verified) - Number(!!b.verified) ||
+        statusRank[a.status] - statusRank[b.status] ||
         Date.parse(b.createdAt) - Date.parse(a.createdAt),
     );
