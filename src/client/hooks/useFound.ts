@@ -7,7 +7,8 @@ import { appUrl } from "../paths";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AiStatus, FillFields, Item } from "../../shared/types";
 import { OFFICES, CONTACT_TYPES } from "../../shared/constants";
-import { api, getPublisherId, message } from "../api";
+import { ApiError, api, message } from "../api";
+import type { ReviewIssue } from "../../shared/publication";
 import {
   compressImage,
   dataUrlToBlob,
@@ -36,13 +37,15 @@ export function useFound(
 ) {
   const [form, setForm] = useState(empty),
     [editId, setEditId] = useState(""),
+    [baseRevision, setBaseRevision] = useState(0),
     [image, setImage] = useState(""),
     [live, setLive] = useState(false),
     [busy, setBusy] = useState(false),
     [fillBusy, setFillBusy] = useState(false),
     [fillText, setFillText] = useState(""),
     [status, setStatus] = useState(""),
-    [thinking, setThinking] = useState(false);
+    [thinking, setThinking] = useState(false),
+    [reviewIssues, setReviewIssues] = useState<ReviewIssue[]>([]);
   const videoRef = useRef<HTMLVideoElement>(null),
     fileRef = useRef<HTMLInputElement>(null),
     stream = useRef<MediaStream | null>(null),
@@ -87,10 +90,12 @@ export function useFound(
     cancel();
     setForm(empty);
     setEditId("");
+    setBaseRevision(0);
     setImage("");
     blob.current = null;
     setFillText("");
     setStatus("");
+    setReviewIssues([]);
   };
   async function startCamera() {
     stopCamera();
@@ -302,6 +307,23 @@ export function useFound(
       }
     }
   }
+  async function stageImage(): Promise<string> {
+    if (!blob.current && /^data:image\/jpeg/i.test(image))
+      blob.current = dataUrlToBlob(image);
+    if (!blob.current) throw new Error("请先拍照或从相册选择图片");
+    const file =
+      blob.current instanceof File && blob.current.type === "image/jpeg"
+        ? blob.current
+        : new File([blob.current], "item.jpg", { type: "image/jpeg" });
+    const body = new FormData();
+    body.append("image", file, "item.jpg");
+    const staged = await api<{ imageRef: string }>("/api/found-posts/staging", {
+      method: "POST",
+      body,
+    });
+    return staged.imageRef;
+  }
+
   async function submit() {
     if (submitting.current) return;
     if (!editId) {
@@ -325,34 +347,57 @@ export function useFound(
     }
     submitting.current = true;
     setBusy(true);
+    setReviewIssues([]);
     try {
-      const data = new FormData();
-      data.append("ownerId", getPublisherId());
-      for (const [key, value] of Object.entries(form))
-        data.append(key, value.trim());
-      if (blob.current) {
-        const file =
-          blob.current instanceof File && blob.current.type === "image/jpeg"
-            ? blob.current
-            : new File([blob.current], "item.jpg", { type: "image/jpeg" });
-        data.append("image", file, "item.jpg");
+      let imageRef: string | undefined;
+      if (blob.current || (!editId && /^data:image\/jpeg/i.test(image))) {
+        setStatus("正在上传照片并提交审核…");
+        imageRef = await stageImage();
       } else if (!editId) {
         notify("请先拍照或从相册选择图片");
         submitting.current = false;
         setBusy(false);
         return;
+      } else {
+        setStatus("正在提交审核…");
       }
-      await api(
-        editId ? `/api/items/${encodeURIComponent(editId)}` : "/api/items",
-        { method: editId ? "PATCH" : "POST", body: data },
+      const payload = {
+        description: form.description.trim(),
+        place: form.place.trim(),
+        office: form.office.trim(),
+        contact: form.contact.trim(),
+        contactType: form.contactType.trim(),
+        contactValue: form.contactValue.trim(),
+        ...(imageRef ? { imageRef } : {}),
+        ...(editId ? { baseRevision } : {}),
+      };
+      const result = await api<{ notice?: string }>(
+        editId
+          ? `/api/found-posts/${encodeURIComponent(editId)}`
+          : "/api/found-posts",
+        { method: editId ? "PATCH" : "POST", json: payload },
       );
       notify(
-        editId ? "修改已保存（全站可见）" : "已提交到失物招领（全站可见）",
+        result.notice ||
+          (editId ? "修改已通过审核并公开" : "已通过审核并公开"),
       );
       reset();
       await onPublished();
     } catch (err) {
-      notify(message(err));
+      if (err instanceof ApiError && err.issues.length) {
+        setReviewIssues(err.issues);
+        const first = err.issues[0];
+        notify(first?.message || message(err));
+        if (first?.field && first.field !== "general" && first.field !== "image")
+          document.getElementById(first.field)?.focus();
+        setStatus(
+          err.reviewStatus === "unavailable"
+            ? "审核服务暂不可用，请稍后重试（照片与填写已保留）"
+            : "审核未通过，请按提示修改后重新提交（照片与填写已保留）",
+        );
+      } else {
+        notify(message(err));
+      }
     } finally {
       submitting.current = false;
       setBusy(false);
@@ -361,6 +406,8 @@ export function useFound(
   function edit(item: Item) {
     cancel();
     setEditId(item.id);
+    setBaseRevision(item.revision || 0);
+    setReviewIssues([]);
     setForm({
       description: item.description,
       office: OFFICES.includes(item.office) ? item.office : OFFICES[0] || "",
@@ -392,6 +439,7 @@ export function useFound(
     setFillText,
     status: status || defaultStatus,
     thinking,
+    reviewIssues,
     videoRef,
     fileRef,
     startCamera,

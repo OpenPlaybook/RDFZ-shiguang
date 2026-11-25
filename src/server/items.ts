@@ -39,5 +39,7 @@ export function publicItem(
     contactType: sensitive ? row.contact_type : "",
     contactValue: sensitive ? row.contact_value : "",
     claim: sensitive ? row.claim : null,
+    revision: typeof row.revision === "number" ? row.revision : undefined,
+    publication: row.publication ?? undefined,
   };
 }

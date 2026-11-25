@@ -9,9 +9,16 @@ import {
   createLostMatching,
   type LostMatchingHandles,
 } from "./lost-matching/mount.js";
+import {
+  createModerationPublication,
+  type ModerationPublicationHandles,
+} from "./moderation-publication/mount.js";
+
 const config = configFromEnv();
 const store = new FileStore(config.dataDir);
 let storeReady: Promise<FileStore> | undefined;
+let handoffC: ModerationPublicationHandles | undefined;
+let handoffCReady: Promise<ModerationPublicationHandles> | undefined;
 let handoffB: LostMatchingHandles | undefined;
 let handoffBReady: Promise<LostMatchingHandles> | undefined;
 const acquireStore = () =>
@@ -23,11 +30,28 @@ try {
   const app = express();
   const routes = express.Router();
   const business = createApp(config, store);
+  const ensureHandoffC = () =>
+    (handoffCReady ??= (async () => {
+      await acquireStore();
+      if (!handoffC) {
+        handoffC = await createModerationPublication({ config, store });
+        business.mountExtraApi((router) => handoffC!.mountRoutes(router));
+      }
+      return handoffC;
+    })().catch((error) => {
+      handoffCReady = undefined;
+      throw error;
+    }));
   const ensureHandoffB = () =>
     (handoffBReady ??= (async () => {
-      await acquireStore();
+      const publication = await ensureHandoffC();
       if (!handoffB) {
-        handoffB = await createLostMatching({ config, store });
+        handoffB = await createLostMatching({
+          config,
+          store,
+          reviewSubmission: publication.reviewSubmission,
+          isApprovedVersion: publication.isApprovedVersion,
+        });
         business.mountExtraApi((router) => handoffB!.mountRoutes(router));
         handoffB.scheduler.start();
       }
@@ -41,6 +65,7 @@ try {
   routes.use(["/api", "/uploads"], async (_req, _res, next) => {
     try {
       await acquireStore();
+      await ensureHandoffC();
       await ensureHandoffB();
       next();
     } catch (error) {

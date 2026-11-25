@@ -1,5 +1,25 @@
 import { appUrl } from "./paths";
 import { ADMIN_TOKEN_KEY, PUBLISHER_KEY } from "../shared/constants";
+import type { ReviewIssue, ReviewStatus } from "../shared/publication";
+
+export class ApiError extends Error {
+  status: number;
+  issues: ReviewIssue[];
+  reviewStatus?: ReviewStatus;
+  constructor(
+    text: string,
+    status: number,
+    issues: ReviewIssue[] = [],
+    reviewStatus?: ReviewStatus,
+  ) {
+    super(text);
+    this.name = "ApiError";
+    this.status = status;
+    this.issues = issues;
+    this.reviewStatus = reviewStatus;
+  }
+}
+
 export function getPublisherId() {
   let id = localStorage.getItem(PUBLISHER_KEY);
   if (!id) {
@@ -32,9 +52,16 @@ export async function api<T>(
   }
   const data = (await response.json().catch(() => ({}))) as T & {
     error?: string;
+    status?: ReviewStatus;
+    issues?: ReviewIssue[];
   };
   if (!response.ok)
-    throw new Error(data.error || `请求失败 (${response.status})`);
+    throw new ApiError(
+      data.error || `请求失败 (${response.status})`,
+      response.status,
+      Array.isArray(data.issues) ? data.issues : [],
+      data.status,
+    );
   return data;
 }
 export const message = (err: unknown) =>

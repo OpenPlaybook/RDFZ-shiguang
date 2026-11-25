@@ -128,6 +128,19 @@ export function FoundPanel({
               {m.fillBusy ? "提取中…" : "从文字提取"}
             </button>
           </div>
+          {m.reviewIssues.length > 0 && (
+            <div className="review-issues" role="alert">
+              <strong>审核未通过</strong>
+              <ul>
+                {m.reviewIssues.map((issue, index) => (
+                  <li key={`${issue.field}-${index}`}>
+                    {issue.field !== "general" ? `${issue.field}：` : ""}
+                    {issue.message}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <label>
             物品描述
             <span className="hint">拍照后 AI 自动识别，可修改补充</span>
@@ -136,6 +149,7 @@ export function FoundPanel({
               placeholder="例如：粉红色水杯 / 上面写有 1356 的饭卡"
               value={m.form.description}
               onChange={(e) => m.setField("description", e.currentTarget.value)}
+              aria-invalid={m.reviewIssues.some((i) => i.field === "description")}
             ></textarea>
           </label>
           <label>
@@ -208,8 +222,8 @@ export function FoundPanel({
           >
             {m.busy
               ? m.editId
-                ? "保存中…"
-                : "提交中…"
+                ? "审核保存中…"
+                : "审核提交中…"
               : m.editId
                 ? "保存修改"
                 : "提交到失物招领"}

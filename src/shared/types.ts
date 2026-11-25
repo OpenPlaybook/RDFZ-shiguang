@@ -19,6 +19,10 @@ export interface ViewLog extends Profile {
   unlockedAt: string;
   viewedFields: string[];
 }
+export interface PublicationInfo {
+  approvedRevision: number;
+  reviewedAt: string;
+}
 export interface Item {
   id: string;
   ownerId: string;
@@ -36,6 +40,9 @@ export interface Item {
   viewLogs: ViewLog[];
   unlocked: boolean;
   isOwner: boolean;
+  /** C：内容版本；缺省表示历史未接入审核。 */
+  revision?: number;
+  publication?: PublicationInfo | null;
 }
 export interface ItemRow {
   id: string;
@@ -51,6 +58,8 @@ export interface ItemRow {
   status: "open" | "claimed";
   claim: Claim | null;
   verified: Verification | null;
+  revision?: number;
+  publication?: PublicationInfo | null;
 }
 export interface ViewLogRow {
   id: string;
