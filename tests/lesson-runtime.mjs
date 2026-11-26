@@ -1,6 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, cp, rm, access, readdir, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  cp,
+  rm,
+  access,
+  readdir,
+  writeFile,
+  readFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -193,6 +201,7 @@ test("Platform identities, class and school storage, image access, and release h
   const form = new FormData();
   for (const [k, v] of Object.entries({
     ownerId: "forged",
+    schoolRecord: "true",
     name: "伪造姓名",
     className: "伪造班级",
     description: "测试蓝色水杯",
@@ -328,6 +337,7 @@ test("Platform identities, class and school storage, image access, and release h
       description: "遗失水杯",
       place: "操场",
       ownerId: "forged",
+      schoolRecord: true,
     }),
   });
   assert.equal(lost.status, 201);
@@ -347,6 +357,130 @@ test("Platform identities, class and school storage, image access, and release h
     (await readdir(path.join(opus, "shiguang-platform", "items"))).length,
     1,
   );
+  // School records are explicitly stored by a one-time migration, never inferred
+  // from a missing class or accepted from browser-supplied fields.
+  const data = path.join(opus, "shiguang-platform");
+  const currentRecord = JSON.parse(
+    await readFile(path.join(data, "items", item.id + ".json"), "utf8"),
+  );
+  assert.equal(currentRecord.item.schoolRecord, undefined);
+  assert.equal(currentRecord.item.ownerClassId, "class_a1");
+  const currentLost = JSON.parse(
+    await readFile(path.join(data, "lost", lostPost.id + ".json"), "utf8"),
+  );
+  assert.equal(currentLost.schoolRecord, undefined);
+  const historicalId = "item_school_history";
+  await cp(
+    path.join(data, item.image.slice(1)),
+    path.join(data, "uploads", "school-history.png"),
+  );
+  const historical = {
+    ...currentRecord,
+    item: {
+      ...currentRecord.item,
+      id: historicalId,
+      owner_id: "legacy_anonymous",
+      ownerClassId: undefined,
+      schoolRecord: true,
+      image: "/uploads/school-history.png",
+      status: "open",
+      claim: null,
+      claim_log: [],
+      created_at: "2020-01-01T00:00:00.000Z",
+    },
+  };
+  await writeFile(
+    path.join(data, "items", historicalId + ".json"),
+    JSON.stringify(historical),
+  );
+  await writeFile(
+    path.join(data, "items", "item_unassigned.json"),
+    JSON.stringify({
+      ...historical,
+      item: {
+        ...historical.item,
+        id: "item_unassigned",
+        schoolRecord: undefined,
+      },
+    }),
+  );
+  const historicalLost = {
+    ...currentLost,
+    id: "lost_school_history",
+    ownerId: "legacy_anonymous",
+    ownerClassId: undefined,
+    schoolRecord: true,
+  };
+  await writeFile(
+    path.join(data, "lost", historicalLost.id + ".json"),
+    JSON.stringify(historicalLost),
+  );
+  const itemRoute = "/api/items/" + historicalId;
+  const lostRoute = "/api/lost-posts/" + historicalLost.id;
+  const wholeSchool = context(student());
+  const boundClass = context(student(), ["class_a1"]);
+  const author = { ...teacher, isAuthor: true };
+  assert.equal((await first.request(itemRoute, wholeSchool)).status, 200);
+  assert.equal(
+    (await first.request("/api/items/item_unassigned", wholeSchool)).status,
+    404,
+  );
+  assert.equal((await first.request(itemRoute, boundClass)).status, 404);
+  assert.equal((await first.request(itemRoute, teacher)).status, 404);
+  assert.equal((await first.request(itemRoute, author)).status, 200);
+  assert.equal((await first.request(lostRoute, wholeSchool)).status, 200);
+  assert.equal((await first.request(lostRoute, boundClass)).status, 404);
+  assert.equal(
+    (await first.request("/uploads/school-history.png", wholeSchool)).status,
+    200,
+  );
+  assert.equal(
+    (await first.request("/uploads/school-history.png", boundClass)).status,
+    404,
+  );
+  assert.equal(
+    (
+      await first.request(
+        "/uploads/school-history.png",
+        context(student("school_b", "class_b1", "stu_b1")),
+      )
+    ).status,
+    404,
+  );
+  const claimHistory = await first.request(itemRoute + "/claim", wholeSchool, {
+    method: "POST",
+  });
+  assert.equal(claimHistory.status, 200);
+  const claimedHistory = JSON.parse(
+    await readFile(path.join(data, "items", historicalId + ".json"), "utf8"),
+  );
+  assert.equal(claimedHistory.item.owner_id, "legacy_anonymous");
+  assert.equal(claimedHistory.item.claim.claimantUserId, "stu_a1");
+  assert.equal(claimedHistory.item.schoolRecord, true);
+  assert.equal(claimedHistory.item.ownerClassId, undefined);
+  const closeLost = {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ status: "closed" }),
+  };
+  assert.equal(
+    (await first.request(lostRoute, wholeSchool, closeLost)).status,
+    403,
+  );
+  assert.equal(
+    (await first.request(lostRoute, teacher, closeLost)).status,
+    404,
+  );
+  assert.equal((await first.request(lostRoute, author, closeLost)).status, 200);
+  const closedHistory = JSON.parse(
+    await readFile(
+      path.join(data, "lost", historicalLost.id + ".json"),
+      "utf8",
+    ),
+  );
+  assert.equal(closedHistory.schoolRecord, true);
+  assert.equal(closedHistory.ownerClassId, undefined);
+  assert.equal(closedHistory.ownerId, "legacy_anonymous");
   const candidate = await launch();
   assert.equal((await candidate.request("/api/health")).status, 200);
   await first.stop();

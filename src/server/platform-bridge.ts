@@ -6,6 +6,7 @@ import { platformScope, type PlatformScope } from "./platform-scope.js";
 import type { LookupResult } from "../shared/identity.js";
 
 interface HostContext {
+  isAuthor?: boolean;
   sourceId: string;
   opusRootDir: string;
   studentEntry?: unknown;
@@ -131,6 +132,9 @@ export function readPlatformScope(
     schoolId: d.schoolId,
     dataRoot: d.dataRoot,
     classIds: d.classIds!,
+    canManageSchoolRecords: Boolean(
+      c.teacher && c.isAuthor === true && d.dataRoot === root,
+    ),
     signal,
   };
 }

@@ -7,7 +7,7 @@ import type { LostPost } from "../../shared/lost.js";
 import {
   visibleInScope,
   assertInScope,
-  newRecordClass,
+  retainRecordScope,
 } from "../platform-scope.js";
 export class LostStore {
   private queues = new Map<string, Promise<unknown>>();
@@ -26,7 +26,9 @@ export class LostStore {
 
   async read(id: string): Promise<LostPost | null> {
     const post = await this.readAny(id);
-    return post && visibleInScope(post.ownerClassId) ? post : null;
+    return post && visibleInScope(post.ownerClassId, post.schoolRecord)
+      ? post
+      : null;
   }
   private async readAny(id: string): Promise<LostPost | null> {
     let raw: string;
@@ -68,9 +70,9 @@ export class LostStore {
       .catch(() => {})
       .then(async () => {
         const current = await this.readAny(id);
-        if (current) assertInScope(current.ownerClassId);
+        if (current) assertInScope(current.ownerClassId, current.schoolRecord);
         const next = await change(current);
-        if (next) next.ownerClassId = current?.ownerClassId ?? newRecordClass();
+        if (next) retainRecordScope(current, next);
         if (next) {
           if (next.id !== id) throw new Error("寻物 ID 不可修改");
           await atomicWrite(this.file(id), next);

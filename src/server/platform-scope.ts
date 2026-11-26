@@ -8,18 +8,42 @@ export interface PlatformScope {
   schoolId: string;
   dataRoot: string;
   classIds: string[] | null;
+  canManageSchoolRecords?: boolean;
   signal: AbortSignal;
 }
 export const platformScope = new AsyncLocalStorage<PlatformScope>();
-export function visibleInScope(classId: string | undefined) {
+export function visibleInScope(
+  classId: string | undefined,
+  schoolRecord?: true,
+) {
   const scope = platformScope.getStore();
   return (
     !scope ||
-    (!!classId && (scope.classIds === null || scope.classIds.includes(classId)))
+    (schoolRecord === true
+      ? scope.classIds === null || scope.canManageSchoolRecords === true
+      : !!classId &&
+        (scope.classIds === null || scope.classIds.includes(classId)))
   );
 }
-export function assertInScope(classId: string | undefined) {
-  if (!visibleInScope(classId)) throw new HttpError(404, "记录不存在");
+export function assertInScope(
+  classId: string | undefined,
+  schoolRecord?: true,
+) {
+  if (!visibleInScope(classId, schoolRecord))
+    throw new HttpError(404, "记录不存在");
+}
+/** Preserve stored scope; clients cannot promote a class record to school scope. */
+export function retainRecordScope(
+  current: { ownerClassId?: string; schoolRecord?: true } | null,
+  next: { ownerClassId?: string; schoolRecord?: true },
+) {
+  if (current?.schoolRecord === true) {
+    next.schoolRecord = true;
+    delete next.ownerClassId;
+  } else {
+    delete next.schoolRecord;
+    next.ownerClassId = current?.ownerClassId ?? newRecordClass();
+  }
 }
 export function newRecordClass() {
   const scope = platformScope.getStore();

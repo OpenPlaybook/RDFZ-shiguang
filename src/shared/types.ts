@@ -94,6 +94,8 @@ export interface ItemRow {
   id: string;
   owner_id: string;
   ownerClassId?: string;
+  /** Explicit school-owned record; not assignable by public write APIs. */
+  schoolRecord?: true;
   description: string;
   office: string;
   place: string;
