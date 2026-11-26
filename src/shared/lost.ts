@@ -9,6 +9,7 @@ export interface PublicationRef {
 export interface LostPost {
   id: string;
   ownerId: string;
+  ownerClassId?: string;
   ownerName: string;
   ownerClassName: string;
   description: string;

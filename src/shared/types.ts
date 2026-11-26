@@ -93,6 +93,7 @@ export interface Item {
 export interface ItemRow {
   id: string;
   owner_id: string;
+  ownerClassId?: string;
   description: string;
   office: string;
   place: string;

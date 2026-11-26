@@ -29,6 +29,11 @@ export async function atomicWrite(file: string, value: unknown) {
     await rm(tmp, { force: true });
   }
 }
+import {
+  visibleInScope,
+  assertInScope,
+  newRecordClass,
+} from "./platform-scope.js";
 export class FileStore {
   private queues = new Map<string, Promise<unknown>>();
   private release?: () => Promise<void>;
@@ -64,6 +69,10 @@ export class FileStore {
     return path.join(this.root, "items", `${id}.json`);
   }
   async read(id: string): Promise<ItemRecord | null> {
+    const record = await this.readAny(id);
+    return record && visibleInScope(record.item.ownerClassId) ? record : null;
+  }
+  private async readAny(id: string): Promise<ItemRecord | null> {
     this.assertOpen();
     let raw: string;
     try {
@@ -122,7 +131,12 @@ export class FileStore {
       .catch(() => {})
       .then(async () => {
         if (this.compromised) throw this.compromised;
-        const next = await change(await this.read(id));
+        const current = await this.readAny(id);
+        if (current) assertInScope(current.item.ownerClassId);
+        const next = await change(current);
+        if (next)
+          next.item.ownerClassId =
+            current?.item.ownerClassId ?? newRecordClass();
         if (this.compromised) throw this.compromised;
         if (next) {
           if (next.item.id !== id) throw new Error("帖子 ID 不可修改");
